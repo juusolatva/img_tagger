@@ -176,6 +176,7 @@ def process_single_image(img_path, client, backend, model, prompt):
         else:
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
         
+        # Clean the tags and check if we actually got anything
         tags = [tag.strip() for tag in raw_output.split(',') if tag.strip()]
         
         if tags:
@@ -185,10 +186,11 @@ def process_single_image(img_path, client, backend, model, prompt):
             return "FAILED", img_path.name, "Empty tags list returned from model"
                 
     except Exception as e:
+        # Catching the specific error to show it in the report
         return "FAILED", img_path.name, str(e)
 
 
-def process_directory(directory, recursive, backend, host, model):
+def process_directory(directory, recursive, backend, host, model, max_workers):
     base_path = Path(directory)
     files = base_path.rglob('*') if recursive else base_path.iterdir()
     valid_extensions = {'.jpg', '.jpeg', '.png','.webp', '.gif'}
@@ -224,8 +226,9 @@ def process_directory(directory, recursive, backend, host, model):
     failed_log = []
     start_time = time.time()
 
-    print(f"Starting concurrent processing with max_workers=3...\n")
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    print(f"Starting concurrent processing with max_workers={max_workers}...\n")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
         future_to_image = {
             executor.submit(process_single_image, img_path, client, backend, model, prompt): img_path 
             for img_path in image_files
@@ -239,7 +242,7 @@ def process_directory(directory, recursive, backend, host, model):
             elif status == "SKIPPED":
                 print(f"  [-] {name} -> {message}")
                 skip_count += 1
-            else: # FAILED
+            else: # This covers any status that is FAILED
                 print(f"  [!] {name} -> {message}")
                 fail_count += 1
                 failed_log.append((name, message))
@@ -272,20 +275,30 @@ def process_directory(directory, recursive, backend, host, model):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Image Tagger using a local vision-language model")
+    parser = argparse.ArgumentParser(description="AI Media Library Tagger with Execution Reports")
     parser.add_argument("directory", help="Path to your image folder")
     parser.add_argument("-r", "--recursive", action="store_true", help="Process subdirectories recursively")
     parser.add_argument("--backend", choices=['ollama', 'lm-studio'], default='ollama', help="Local AI provider backend")
     parser.add_argument("--host", help="Custom backend endpoint URL (Overrides defaults)")
     parser.add_argument("--model", default="qwen3-vl:8b", help="Model identification tag (Mainly for Ollama)")
+    # New worker argument
+    parser.add_argument("--worker", type=int, default=1, help="Number of concurrent workers (Max 4 recommended)")
     
     args = parser.parse_args()
     
     if not os.path.isdir(args.directory):
         print(f"Error: The folder '{args.directory}' could not be located.")
         exit(1)
+
+    # Logic to enforce your rule of max 4 workers
+    if args.worker > 4:
+        print("Warning: Max workers set higher than 4.")
+        args.worker = 4
+    elif args.worker < 1:
+        print("Error: Worker count must be at least 1.")
+        exit(1)
         
     if not args.host:
         args.host = "http://localhost:11434" if args.backend == 'ollama' else "http://localhost:1234"
         
-    process_directory(args.directory, args.recursive, args.backend, args.host, args.model)
+    process_directory(args.directory, args.recursive, args.backend, args.host, args.model, args.worker)
