@@ -6,7 +6,7 @@ import piexif
 
 def clear_tags(image_path):
     """Removes added tags and markers from various image formats."""
-    ext = image_path.lower().split('.')[-1]
+    ext = image_path.suffix.lower().lstrip('.')
     try:
         if ext in ['jpg', 'jpeg']:
             exif_dict = piexif.load(str(image_path))
