@@ -33,28 +33,6 @@ def tag_image(image_path, tags_list):
     """Embeds tags into the image metadata across Windows and Linux platforms."""
     ext = image_path.lower().split('.')[-1]
     marker = "[PROCESSED_BY_AI]"
-    
-    # 0. Check if already processed to allow for resuming/skipping
-    try:
-        filename = image_path.name if hasattr(image_path, 'name') else image_path
-        if ext in ['jpg', 'jpeg', 'webp']:
-            exif_dict = piexif.load(image_path)
-            user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
-            if marker.encode('ascii') in user_comment:
-                print(f"Skipped: {filename}")
-                return 
-        elif ext == 'png':
-            with Image.open(image_path) as img:
-                if marker in img.info.get("Description", ""):
-                    print(f"Skipped: {filename}")
-                    return 
-        elif ext == 'gif':
-            with Image.open(image_path) as img:
-                if marker in img.info.get("comment", ""):
-                    print(f"Skipped: {filename}")
-                    return 
-    except Exception:
-        pass
 
     # 1. Helper for EXIF dictionary (shared by JPEG and WEBP)
     def get_exif_dict():
@@ -160,10 +138,38 @@ def get_tags_lm_studio(client, model, img_path, prompt):
     return response.choices[0].message.content
 
 
+def is_already_processed(img_path):
+    """Checks if the image already contains the AI processed marker."""
+    marker = "[PROCESSED_BY_AI]"
+    # Convert to Path object to ensure .suffix works even if a string is passed
+    p = Path(img_path)
+    ext = p.suffix.lower().lstrip('.')
+    
+    try:
+        if ext in ['jpg', 'jpeg', 'webp']:
+            exif_dict = piexif.load(str(p))
+            user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
+            return marker.encode('ascii') in user_comment
+        elif ext == 'png':
+            with Image.open(p) as img:
+                return marker in img.info.get("Description", "")
+        elif ext == 'gif':
+            with Image.open(p) as img:
+                return marker in img.info.get("comment", "")
+    except Exception:
+        pass
+    return False
+
+
 def process_single_image(img_path, client, backend, model, prompt):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
+    # 1. Sanity Check
     if not is_valid_image(img_path):
         return False, img_path.name, "Skipping unsupported or corrupted file"
+
+    # 2. Skip check (New Logic)
+    if is_already_processed(img_path):
+        return False, img_path.name, "Skipped: Already Tagged"
 
     try:
         if backend == 'ollama':
