@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from PIL import Image, PngImagePlugin
 import piexif
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Try importing backends safely
 try:
@@ -35,18 +36,22 @@ def tag_image(image_path, tags_list):
     
     # 0. Check if already processed to allow for resuming/skipping
     try:
+        filename = image_path.name if hasattr(image_path, 'name') else image_path
         if ext in ['jpg', 'jpeg', 'webp']:
             exif_dict = piexif.load(image_path)
             user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
             if marker.encode('ascii') in user_comment:
+                print(f"Skipped: {filename}")
                 return 
         elif ext == 'png':
             with Image.open(image_path) as img:
                 if marker in img.info.get("Description", ""):
+                    print(f"Skipped: {filename}")
                     return 
         elif ext == 'gif':
             with Image.open(image_path) as img:
                 if marker in img.info.get("comment", ""):
+                    print(f"Skipped: {filename}")
                     return 
     except Exception:
         pass
@@ -155,6 +160,29 @@ def get_tags_lm_studio(client, model, img_path, prompt):
     return response.choices[0].message.content
 
 
+def process_single_image(img_path, client, backend, model, prompt):
+    """Handles the full pipeline for a single image: validation -> AI -> tagging."""
+    if not is_valid_image(img_path):
+        return False, img_path.name, "Skipping unsupported or corrupted file"
+
+    try:
+        if backend == 'ollama':
+            raw_output = get_tags_ollama(client, model, img_path, prompt)
+        else:
+            raw_output = get_tags_lm_studio(client, model, img_path, prompt)
+        
+        tags = [tag.strip() for tag in raw_output.split(',') if tag.strip()]
+        
+        if tags:
+            tag_image(str(img_path), tags)
+            return True, img_path.name, f"Generated Tags: {tags}"
+        else:
+            return False, img_path.name, "Empty tags list returned from model"
+                
+    except Exception as e:
+        return False, img_path.name, str(e)
+
+
 def process_directory(directory, recursive, backend, host, model):
     base_path = Path(directory)
     files = base_path.rglob('*') if recursive else base_path.iterdir()
@@ -190,36 +218,29 @@ def process_directory(directory, recursive, backend, host, model):
     failed_log = []
     start_time = time.time()
 
-    for img_path in image_files:
+    # Performance Metrics Initializers
+    success_count = 0
+    fail_count = 0
+    failed_log = []
+    start_time = time.time()
 
-        # 1. Sanity Check (Lightweight Header Verification)
-        if not is_valid_image(img_path):
-            print(f"  [!] Skipping unsupported or corrupted file: {img_path.name}")
-            continue
+    print(f"Starting concurrent processing with max_workers=2...\n")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        # Submit all tasks
+        future_to_image = {
+            executor.submit(process_single_image, img_path, client, backend, model, prompt): img_path 
+            for img_path in image_files
+        }
 
-        print(f"Processing: {img_path.name}")
-        try:
-            if backend == 'ollama':
-                raw_output = get_tags_ollama(client, model, img_path, prompt)
-            else:
-                raw_output = get_tags_lm_studio(client, model, img_path, prompt)
-            
-            tags = [tag.strip() for tag in raw_output.split(',') if tag.strip()]
-            
-            if tags:
-                tag_image(str(img_path), tags)
-                print(f"  -> Generated Tags: {tags}")
-                print("  -> Metadata saved successfully.")
+        for future in as_completed(future_to_image):
+            success, name, message = future.result()
+            if success:
+                print(f"  Success: {name} -> {message}")
                 success_count += 1
             else:
-                print("  [!] Received an empty tag output list from the model.")
+                print(f"  Failure: {name} -> {message}")
                 fail_count += 1
-                failed_log.append((img_path.name, "Empty tags list returned from model"))
-                
-        except Exception as e:
-            print(f"  [!] Error processing {img_path.name}: {e}")
-            fail_count += 1
-            failed_log.append((img_path.name, str(e)))
+                failed_log.append((name, message))
 
     # Calculate metrics
     end_time = time.time()
@@ -248,7 +269,7 @@ def process_directory(directory, recursive, backend, host, model):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AI Media Library Tagger with Execution Reports")
+    parser = argparse.ArgumentParser(description="Image Tagger using a local vision-language model")
     parser.add_argument("directory", help="Path to your image folder")
     parser.add_argument("-r", "--recursive", action="store_true", help="Process subdirectories recursively")
     parser.add_argument("--backend", choices=['ollama', 'lm-studio'], default='ollama', help="Local AI provider backend")
