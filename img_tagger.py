@@ -163,13 +163,12 @@ def is_already_processed(img_path):
 
 def process_single_image(img_path, client, backend, model, prompt):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
-    # 1. Sanity Check
     if not is_valid_image(img_path):
-        return False, img_path.name, "Skipping unsupported or corrupted file"
+        return "FAILED", img_path.name, f"Skipping unsupported or corrupted file"
 
-    # 2. Skip check (New Logic)
+    # Skip check
     if is_already_processed(img_path):
-        return False, img_path.name, "Skipped: Already Tagged"
+        return "SKIPPED", img_path.name, "Skipped: Already Tagged"
 
     try:
         if backend == 'ollama':
@@ -181,12 +180,12 @@ def process_single_image(img_path, client, backend, model, prompt):
         
         if tags:
             tag_image(str(img_path), tags)
-            return True, img_path.name, f"Generated Tags: {tags}"
+            return "SUCCESS", img_path.name, f"Generated Tags: {tags}"
         else:
-            return False, img_path.name, "Empty tags list returned from model"
+            return "FAILED", img_path.name, "Empty tags list returned from model"
                 
     except Exception as e:
-        return False, img_path.name, str(e)
+        return "FAILED", img_path.name, str(e)
 
 
 def process_directory(directory, recursive, backend, host, model):
@@ -221,30 +220,27 @@ def process_directory(directory, recursive, backend, host, model):
     # Performance Metrics Initializers
     success_count = 0
     fail_count = 0
+    skip_count = 0 
     failed_log = []
     start_time = time.time()
 
-    # Performance Metrics Initializers
-    success_count = 0
-    fail_count = 0
-    failed_log = []
-    start_time = time.time()
-
-    print(f"Starting concurrent processing with max_workers=2...\n")
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit all tasks
+    print(f"Starting concurrent processing with max_workers=3...\n")
+    with ThreadPoolExecutor(max_workers=3) as executor:
         future_to_image = {
             executor.submit(process_single_image, img_path, client, backend, model, prompt): img_path 
             for img_path in image_files
         }
 
         for future in as_completed(future_to_image):
-            success, name, message = future.result()
-            if success:
-                print(f"  Success: {name} -> {message}")
+            status, name, message = future.result()
+            if status == "SUCCESS":
+                print(f"  [✓] {name} -> {message}")
                 success_count += 1
-            else:
-                print(f"  Failure: {name} -> {message}")
+            elif status == "SKIPPED":
+                print(f"  [-] {name} -> {message}")
+                skip_count += 1
+            else: # FAILED
+                print(f"  [!] {name} -> {message}")
                 fail_count += 1
                 failed_log.append((name, message))
 
@@ -259,6 +255,7 @@ def process_directory(directory, recursive, backend, host, model):
     print("                PROCESSING REPORT")
     print("="*50)
     print(f" Successfully Processed : {success_count}")
+    print(f" Skipped (Already Tagged): {skip_count}")
     print(f" Failed Images          : {fail_count}")
     print(f" Total Time Elapsed     : {int(hours)}h {int(minutes)}m {seconds:.2f}s")
     
