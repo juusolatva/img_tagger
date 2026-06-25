@@ -2,10 +2,20 @@ import os
 import argparse
 import base64
 import time
+import sys
+import threading
+import platform
 from pathlib import Path
 from PIL import Image, PngImagePlugin
 import piexif
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Platform-specific imports for key detection
+if platform.system() == "Windows":
+    import msvcrt
+else:
+    import termios
+    import tty
 
 # Try importing backends safely
 try:
@@ -17,6 +27,17 @@ try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
+
+
+def listen_for_quit(stop_event):
+    """Background thread to watch for 'q' keypress on Windows and Linux."""
+    while not stop_event.is_set():
+        if platform.system() == "Windows":
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('utf-8').lower()
+                if key == 'q':
+                    stop_event.set()
+                    break
 
 
 def is_valid_image(img_path):
@@ -219,22 +240,32 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     else:
         client = OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
 
-    # Performance Metrics Initializers
+ # Performance Metrics Initializers
     success_count = 0
     fail_count = 0
-    skip_count = 0 
+    skip_count = 0
     failed_log = []
     start_time = time.time()
 
-    print(f"Starting concurrent processing with max_workers={max_workers}...\n")
+    # Concurrency & Quit Logic
+    stop_event = threading.Event()
+    quit_thread = threading.Thread(target=listen_for_quit, args=(stop_event,), daemon=True)
+    quit_thread.start()
+
+    print(f"Starting concurrent processing (max_workers={max_workers}).")
+    print("Press 'q' at any time to stop and see the current report.\n")
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
         future_to_image = {
             executor.submit(process_single_image, img_path, client, backend, model, prompt): img_path 
             for img_path in image_files
         }
 
         for future in as_completed(future_to_image):
+            if stop_event.is_set():
+                print("\n[!] Stop signal received (Q pressed). Stopping new tasks...")
+                break
+            
             status, name, message = future.result()
             if status == "SUCCESS":
                 print(f"  [✓] {name} -> {message}")
@@ -242,7 +273,7 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
             elif status == "SKIPPED":
                 print(f"  [-] {name} -> {message}")
                 skip_count += 1
-            else: # This covers any status that is FAILED
+            else: # FAILED
                 print(f"  [!] {name} -> {message}")
                 fail_count += 1
                 failed_log.append((name, message))
