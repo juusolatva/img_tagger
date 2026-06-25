@@ -1,14 +1,15 @@
-import os
 import argparse
 import base64
-import time
+import os
+import platform
 import sys
 import threading
-import platform
-from pathlib import Path
-from PIL import Image, PngImagePlugin
-import piexif
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+import piexif
+from PIL import Image, PngImagePlugin
 
 # Platform-specific imports for key detection
 if platform.system() == "Windows":
@@ -34,8 +35,8 @@ def listen_for_quit(stop_event):
     while not stop_event.is_set():
         if platform.system() == "Windows":
             if msvcrt.kbhit():
-                key = msvcrt.getch().decode('utf-8').lower()
-                if key == 'q':
+                key = msvcrt.getch().decode("utf-8").lower()
+                if key == "q":
                     stop_event.set()
                     break
 
@@ -45,14 +46,14 @@ def is_valid_image(img_path):
     try:
         with Image.open(img_path) as img:
             # Pillow verifies the file is a valid image by its header
-            return img.format in ['JPEG', 'PNG', 'WEBP', 'GIF']
+            return img.format in ["JPEG", "PNG", "WEBP", "GIF"]
     except:
         return False
 
 
 def tag_image(image_path, tags_list):
     """Embeds tags into the image metadata across Windows and Linux platforms."""
-    ext = image_path.lower().split('.')[-1]
+    ext = image_path.lower().split(".")[-1]
     marker = "[PROCESSED_BY_AI]"
 
     # 1. Helper for EXIF dictionary (shared by JPEG and WEBP)
@@ -60,34 +61,45 @@ def tag_image(image_path, tags_list):
         try:
             return piexif.load(image_path)
         except Exception:
-            return {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": None}
+            return {
+                "0th": {},
+                "Exif": {},
+                "GPS": {},
+                "Interop": {},
+                "1st": {},
+                "thumbnail": None,
+            }
 
     tags_str = ", ".join(tags_list)
 
     # 2. Handle JPEG/WEBP logic (using EXIF)
-    if ext in ['jpg', 'jpeg']:
+    if ext in ["jpg", "jpeg"]:
         exif_dict = get_exif_dict()
-        user_comment = b'ASCII\x00\x00\x00' + (tags_str + " " + marker).encode('ascii', errors='ignore')
+        user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
+            "ascii", errors="ignore"
+        )
         exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
         win_tags_str = ";".join(tags_list) + "\x00"
         exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
-        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode('ascii')
+        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
 
         try:
             exif_bytes = piexif.dump(exif_dict)
-            # piexif.insert modifies the file in place without re-encoding pixels, 
+            # piexif.insert modifies the file in place without re-encoding pixels,
             # ensuring zero quality loss for JPEGs.
             piexif.insert(exif_bytes, image_path)
         except Exception as e:
             raise RuntimeError(f"EXIF injection failed: {e}")
-            
-    elif ext == 'webp':
+
+    elif ext == "webp":
         exif_dict = get_exif_dict()
-        user_comment = b'ASCII\x00\x00\x00' + (tags_str + " " + marker).encode('ascii', errors='ignore')
+        user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
+            "ascii", errors="ignore"
+        )
         exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
         win_tags_str = ";".join(tags_list) + "\x00"
         exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
-        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode('ascii')
+        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
 
         try:
             exif_bytes = piexif.dump(exif_dict)
@@ -97,24 +109,24 @@ def tag_image(image_path, tags_list):
         except Exception as e:
             raise RuntimeError(f"WebP EXIF injection failed: {e}")
 
-    elif ext == 'png':
+    elif ext == "png":
         try:
             with Image.open(image_path) as img:
-                img.load() 
+                img.load()
                 metadata = PngImagePlugin.PngInfo()
                 for k, v in img.info.items():
                     if isinstance(v, str) and k not in ["Keywords", "Description"]:
                         metadata.add_text(k, v)
-                
+
                 metadata.add_text("Keywords", tags_str)
                 metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
-                
+
             # Added optimize=True to ensure best compression without quality loss
             img.save(image_path, pnginfo=metadata, optimize=True)
         except Exception as e:
             raise RuntimeError(f"PNG chunk metadata write failed: {e}")
 
-    elif ext == 'gif':
+    elif ext == "gif":
         try:
             with Image.open(image_path) as img:
                 comment = f"{tags_str} {marker}"
@@ -132,29 +144,34 @@ def get_tags_ollama(client, model, img_path, prompt):
     """Sends image payload to an Ollama server."""
     response = client.chat(
         model=model,
-        messages=[{
-            'role': 'user',
-            'content': prompt,
-            'images': [str(img_path)]
-        }]
+        messages=[{"role": "user", "content": prompt, "images": [str(img_path)]}],
     )
-    return response.message.content if hasattr(response, 'message') else response['message']['content']
+    return (
+        response.message.content
+        if hasattr(response, "message")
+        else response["message"]["content"]
+    )
 
 
 def get_tags_lm_studio(client, model, img_path, prompt):
     """Encodes image to base64 and sends payload to an LM Studio server."""
     with open(img_path, "rb") as image_file:
-        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        
+        base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+
     response = client.chat.completions.create(
-        model=model, 
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ]
-        }]
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                    },
+                ],
+            }
+        ],
     )
     return response.choices[0].message.content
 
@@ -164,17 +181,17 @@ def is_already_processed(img_path):
     marker = "[PROCESSED_BY_AI]"
     # Convert to Path object to ensure .suffix works even if a string is passed
     p = Path(img_path)
-    ext = p.suffix.lower().lstrip('.')
-    
+    ext = p.suffix.lower().lstrip(".")
+
     try:
-        if ext in ['jpg', 'jpeg', 'webp']:
+        if ext in ["jpg", "jpeg", "webp"]:
             exif_dict = piexif.load(str(p))
             user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
-            return marker.encode('ascii') in user_comment
-        elif ext == 'png':
+            return marker.encode("ascii") in user_comment
+        elif ext == "png":
             with Image.open(p) as img:
                 return marker in img.info.get("Description", "")
-        elif ext == 'gif':
+        elif ext == "gif":
             with Image.open(p) as img:
                 return marker in img.info.get("comment", "")
     except Exception:
@@ -192,20 +209,20 @@ def process_single_image(img_path, client, backend, model, prompt):
         return "SKIPPED", img_path.name, "Skipped: Already Tagged"
 
     try:
-        if backend == 'ollama':
+        if backend == "ollama":
             raw_output = get_tags_ollama(client, model, img_path, prompt)
         else:
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
-        
+
         # Clean the tags and check if we actually got anything
-        tags = [tag.strip() for tag in raw_output.split(',') if tag.strip()]
-        
+        tags = [tag.strip() for tag in raw_output.split(",") if tag.strip()]
+
         if tags:
             tag_image(str(img_path), tags)
             return "SUCCESS", img_path.name, f"Generated Tags: {tags}"
         else:
             return "FAILED", img_path.name, "Empty tags list returned from model"
-                
+
     except Exception as e:
         # Catching the specific error to show it in the report
         return "FAILED", img_path.name, str(e)
@@ -213,9 +230,11 @@ def process_single_image(img_path, client, backend, model, prompt):
 
 def process_directory(directory, recursive, backend, host, model, max_workers):
     base_path = Path(directory)
-    files = base_path.rglob('*') if recursive else base_path.iterdir()
-    valid_extensions = {'.jpg', '.jpeg', '.png','.webp', '.gif'}
-    image_files = [f for f in files if f.is_file() and f.suffix.lower() in valid_extensions]
+    files = base_path.rglob("*") if recursive else base_path.iterdir()
+    valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    image_files = [
+        f for f in files if f.is_file() and f.suffix.lower() in valid_extensions
+    ]
 
     if not image_files:
         print(f"No valid images found in '{directory}'.")
@@ -235,12 +254,12 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
         "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
     )
 
-    if backend == 'ollama':
+    if backend == "ollama":
         client = OllamaClient(host=host)
     else:
         client = OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
 
- # Performance Metrics Initializers
+    # Performance Metrics Initializers
     success_count = 0
     fail_count = 0
     skip_count = 0
@@ -249,7 +268,9 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
 
     # Concurrency & Quit Logic
     stop_event = threading.Event()
-    quit_thread = threading.Thread(target=listen_for_quit, args=(stop_event,), daemon=True)
+    quit_thread = threading.Thread(
+        target=listen_for_quit, args=(stop_event,), daemon=True
+    )
     quit_thread.start()
 
     print(f"Starting concurrent processing (max_workers={max_workers}).")
@@ -257,7 +278,9 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_image = {
-            executor.submit(process_single_image, img_path, client, backend, model, prompt): img_path 
+            executor.submit(
+                process_single_image, img_path, client, backend, model, prompt
+            ): img_path
             for img_path in image_files
         }
 
@@ -265,7 +288,7 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
             if stop_event.is_set():
                 print("\n[!] Stop signal received (Q pressed). Stopping new tasks...")
                 break
-            
+
             status, name, message = future.result()
             if status == "SUCCESS":
                 print(f"  [✓] {name} -> {message}")
@@ -273,7 +296,7 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
             elif status == "SKIPPED":
                 print(f"  [-] {name} -> {message}")
                 skip_count += 1
-            else: # FAILED
+            else:  # FAILED
                 print(f"  [!] {name} -> {message}")
                 fail_count += 1
                 failed_log.append((name, message))
@@ -285,38 +308,61 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     minutes, seconds = divmod(remainder, 60)
 
     # Output End Report
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("                PROCESSING REPORT")
-    print("="*50)
+    print("=" * 50)
     print(f" Successfully Processed : {success_count}")
     print(f" Skipped (Already Tagged): {skip_count}")
     print(f" Failed Images          : {fail_count}")
     print(f" Total Time Elapsed     : {int(hours)}h {int(minutes)}m {seconds:.2f}s")
-    
+
     if success_count > 0:
         avg_speed = total_seconds / success_count
         print(f" Average Processing Speed: {avg_speed:.2f} seconds per image")
-        
+
     if failed_log:
         print("\n--- Failed Files Details ---")
         for filename, error_msg in failed_log:
             print(f" * {filename} -> {error_msg}")
-            
-    print("="*50)
+
+    print("=" * 50)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AI Media Library Tagger with Execution Reports")
+    parser = argparse.ArgumentParser(
+        description="AI Media Library Tagger with Execution Reports"
+    )
     parser.add_argument("directory", help="Path to your image folder")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Process subdirectories recursively")
-    parser.add_argument("--backend", choices=['ollama', 'lm-studio'], default='ollama', help="Local AI provider backend")
-    parser.add_argument("--host", help="Custom backend endpoint URL (Overrides defaults)")
-    parser.add_argument("--model", default="qwen3-vl:8b", help="Model identification tag (Mainly for Ollama)")
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process subdirectories recursively",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["ollama", "lm-studio"],
+        default="ollama",
+        help="Local AI provider backend",
+    )
+    parser.add_argument(
+        "--host", help="Custom backend endpoint URL (Overrides defaults)"
+    )
+    parser.add_argument(
+        "--model",
+        default="qwen3-vl:8b",
+        help="Model identification tag (Mainly for Ollama)",
+    )
     # New worker argument
-    parser.add_argument("--worker", type=int, default=1, help="Number of concurrent workers (Max 4 recommended)")
-    
+    parser.add_argument(
+        "--worker",
+        type=int,
+        default=1,
+        help="Number of concurrent workers (Max 4 recommended)",
+    )
+
     args = parser.parse_args()
-    
+
     if not os.path.isdir(args.directory):
         print(f"Error: The folder '{args.directory}' could not be located.")
         exit(1)
@@ -328,8 +374,14 @@ if __name__ == "__main__":
     elif args.worker < 1:
         print("Error: Worker count must be at least 1.")
         exit(1)
-        
+
     if not args.host:
-        args.host = "http://localhost:11434" if args.backend == 'ollama' else "http://localhost:1234"
-        
-    process_directory(args.directory, args.recursive, args.backend, args.host, args.model, args.worker)
+        args.host = (
+            "http://localhost:11434"
+            if args.backend == "ollama"
+            else "http://localhost:1234"
+        )
+
+    process_directory(
+        args.directory, args.recursive, args.backend, args.host, args.model, args.worker
+    )
