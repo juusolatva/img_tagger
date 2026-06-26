@@ -6,6 +6,7 @@
 
 ## Functionality
 - [ ] Option to change the default prompt by reading it from a config file for example
+- [ ] Model output should be parsed for to check it actually contains tags
 
 ## Image file format handling
 - [ ] Fix memory usage for large animated GIFs

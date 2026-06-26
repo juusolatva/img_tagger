@@ -31,7 +31,7 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 
 
 ### Notes
-- Run *img_tagger.py -h* or *img_tagger.py --help* to see arguments and options
+- Run *img_tagger.py -h* or *img_tagger.py --help* to see the arguments and options
 - Press `Q` to quit and then wait for it to finish all the work in progress
 - The script doesn't respect preexisting tags so keep in mind that they will be overwritten
 - Processing the first image takes longer due to the HTTP handshake with the server so be patient
