@@ -144,24 +144,27 @@ def _write_exif_tags(image_path: str,
         os.close(fd)
 
         try:
-            # 1. Copy original file to temp path (preserves all original pixel data)
             shutil.copy2(image_path, temp_path)
-            # 2. Modify metadata in-place on the temp file
             piexif.insert(exif_bytes, temp_path)
-            # 3. Atomically replace the original
             os.replace(temp_path, image_path)
         except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             raise e
+        
     elif ext == "webp":
         with Image.open(image_path) as img:
             # Added quality=95 and method=6 for high-quality preservation
             fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
             os.close(fd)
 
-            img.save(temp_path, exif=exif_bytes, quality=95, method=6, format="WEBP")
-            os.replace(temp_path, image_path)
+            try:
+                img.save(temp_path, exif=exif_bytes, lossless=True, quality=100, method=6, format="WEBP")
+                os.replace(temp_path, image_path)
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise e
 
 
 def _write_png_tags(image_path: str, 
@@ -183,8 +186,13 @@ def _write_png_tags(image_path: str,
         fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
         os.close(fd)
 
-        img.save(temp_path, pnginfo=metadata, optimize=True, format="PNG")
-        os.replace(temp_path, image_path)
+        try:
+            img.save(temp_path, pnginfo=metadata, optimize=True, format="PNG")
+            os.replace(temp_path, image_path)
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise e
 
 
 def _write_gif_tags(image_path: str, 
@@ -203,8 +211,13 @@ def _write_gif_tags(image_path: str,
         fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
         os.close(fd)
 
-        img.save(temp_path, save_all=True, comment=comment, format="GIF")
-        os.replace(temp_path, image_path)
+        try:
+            img.save(temp_path, save_all=True, comment=comment, format="GIF")
+            os.replace(temp_path, image_path)
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise e
 
 
 def tag_image(image_path: str, 
