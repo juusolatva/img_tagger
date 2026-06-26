@@ -40,6 +40,6 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 - In case you need to you can clear all the tags in a folder using the *clear_tags.py* script
 
 ### Known issues
-- Animated **WebPs** are not supported
+- Animated **WebPs** are not properly supported
 - May have issues with some **PNGs** or **GIFs**
 - Large animated **GIFs** are not recommended
