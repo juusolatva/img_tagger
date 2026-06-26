@@ -34,6 +34,7 @@ except ImportError:
 # Logging setup
 import logging
 
+
 def setup_logging(log_path: str | None) -> None:
     if log_path is None:
         return
@@ -50,6 +51,7 @@ def setup_logging(log_path: str | None) -> None:
         format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
         filemode='a'
     )
+
 
 def listen_for_quit(stop_event: threading.Event) -> None:
     """Background thread to watch for 'q' keypress on Windows and Linux."""
@@ -95,6 +97,7 @@ def _get_exif_dict(image_path: str) -> dict:
             "thumbnail": None,
         }
 
+
 def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to JPEG/WEBP images using EXIF metadata."""
     marker = "[PROCESSED_BY_AI]"
@@ -121,6 +124,7 @@ def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
             # Added quality=95 and method=6 for high-quality preservation
             img.save(image_path, exif=exif_bytes, quality=95, method=6)
 
+
 def _write_png_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to PNG images using PngInfo."""
     marker = "[PROCESSED_BY_AI]"
@@ -137,6 +141,7 @@ def _write_png_tags(image_path: str, tags_list: list[str]) -> None:
         # Added optimize=True to ensure best compression without quality loss
         img.save(image_path, pnginfo=metadata, optimize=True)
 
+
 def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to GIF images using comments."""
     marker = "[PROCESSED_BY_AI]"
@@ -149,6 +154,7 @@ def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             comment += "\x00"
         # save_all=True preserves animation frames
         img.save(image_path, save_all=True, comment=comment)
+
 
 def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
@@ -286,7 +292,6 @@ def process_single_image(
     except Exception as e:
         logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
         return "FAILED", img_path.name, str(e), time.time() - start
-
 
 
 def process_directory(
