@@ -38,12 +38,14 @@ def setup_logging(log_path: str | None) -> None:
     if log_path is None:
         return
     
-    log_path = Path(log_path)
+    # Cast or handle Path to satisfy type checker if necessary, 
+    # but here we just need to ensure the logic works.
+    path_obj = Path(log_path)
     # Create parent directory if it doesn't exist
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
     
     logging.basicConfig(
-        filename=str(log_path),
+        filename=str(path_obj),
         level=logging.DEBUG,
         format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
         filemode='a'
