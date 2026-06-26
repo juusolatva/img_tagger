@@ -2,7 +2,6 @@ import argparse
 import base64
 import os
 import platform
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,9 +13,6 @@ from PIL import Image, PngImagePlugin
 # Platform-specific imports for key detection
 if platform.system() == "Windows":
     import msvcrt
-else:
-    import termios
-    import tty
 
 # Try importing backends safely
 try:
@@ -202,7 +198,7 @@ def is_already_processed(img_path):
 def process_single_image(img_path, client, backend, model, prompt):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     if not is_valid_image(img_path):
-        return "FAILED", img_path.name, f"Skipping unsupported or corrupted file"
+        return "FAILED", img_path.name, "Skipping unsupported or corrupted file"
 
     # Skip check
     if is_already_processed(img_path):
@@ -215,7 +211,7 @@ def process_single_image(img_path, client, backend, model, prompt):
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
 
         # Clean the tags and check if we actually got anything
-        tags = [tag.strip() for tag in raw_output.split(",") if tag.strip()]
+        tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
 
         if tags:
             tag_image(str(img_path), tags)
