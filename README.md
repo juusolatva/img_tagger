@@ -35,7 +35,7 @@ You must have Python and either **ollama** or **LM Studio** with a vision-capabl
 - Press `Q` to quit and then wait for it to finish all the work in progress
 - The script doesn't respect preexisting tags so keep in mind that they will be overwritten
 - The default model is Qwen3 VL 8B since it works well but any model capable of processing image inputs should work
-- Allows a maximum of workers which is the default limit for both **ollama** and **LM Studio**.
+- Allows a maximum of 4 workers which is the default limit for both **ollama** and **LM Studio**
 - If you need to you can clear all the tags in a folder using the *clear_tags.py* script
 
 ### Known issues
