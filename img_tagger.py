@@ -31,6 +31,23 @@ try:
 except ImportError:
     OpenAI = None
 
+# Logging setup
+import logging
+
+def setup_logging(log_path: str | None) -> None:
+    if log_path is None:
+        return
+    
+    log_path = Path(log_path)
+    # Create parent directory if it doesn't exist
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    logging.basicConfig(
+        filename=str(log_path),
+        level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
+        filemode='a'
+    )
 
 def listen_for_quit(stop_event: threading.Event) -> None:
     """Background thread to watch for 'q' keypress on Windows and Linux."""
@@ -151,19 +168,23 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
 
 def get_tags_ollama(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Sends image payload to an Ollama server."""
+    logging.debug(f"Requesting tags from Ollama ({model}) for {img_path}")
     response = client.chat(
         model=model,
         messages=[{"role": "user", "content": prompt, "images": [str(img_path)]}],
     )
-    return (
+    content = (
         response.message.content
         if hasattr(response, "message")
         else response["message"]["content"]
     )
+    logging.debug(f"Raw Ollama response for {img_path}: {content}")
+    return content
 
 
 def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
+    logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
@@ -182,7 +203,9 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
             }
         ],
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    logging.debug(f"Raw LM Studio response for {img_path}: {content}")
+    return content
 
 
 def is_already_processed(img_path: Path) -> bool:
@@ -217,11 +240,14 @@ def process_single_image(
     stop_event: threading.Event
 ) -> tuple[str, str, str, float]:
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
+    logging.info(f"Processing {img_path.name}")
     if not is_valid_image(img_path):
+        logging.warning(f"Skipping invalid/unsupported file: {img_path.name}")
         return "FAILED", img_path.name, "Skipping unsupported or corrupted file", 0
 
     # Skip check
     if is_already_processed(img_path):
+        logging.info(f"Skipping already processed image: {img_path.name}")
         return "SKIPPED", img_path.name, "Skipped: Already Tagged", 0
 
     if stop_event.is_set():
@@ -239,6 +265,7 @@ def process_single_image(
 
         if tags:
             tag_image(str(img_path), tags)
+            logging.info(f"Successfully tagged {img_path.name} with {tags}")
             return (
                 "SUCCESS",
                 img_path.name,
@@ -246,6 +273,7 @@ def process_single_image(
                 time.time() - start,
             )
         else:
+            logging.warning(f"Empty tags list returned from model for {img_path.name}")
             return (
                 "FAILED",
                 img_path.name,
@@ -254,8 +282,9 @@ def process_single_image(
             )
 
     except Exception as e:
-        # Catching the specific error to show it in the report
+        logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
         return "FAILED", img_path.name, str(e), time.time() - start
+
 
 
 def process_directory(
@@ -337,30 +366,30 @@ def process_directory(
         stopped_notified = False
         for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
             if stop_event.is_set() and not stopped_notified:
-                print(
-                    "\n  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
+                tqdm.write(
+                    "  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
                 )
                 stopped_notified = True
 
             try:
                 status, name, message, duration = future.result()
                 if status == "SUCCESS":
-                    print(f"  [✓] {name} -> {message}")
+                    tqdm.write(f"  [✓] {name} -> {message}")
                     success_count += 1
                     total_success_duration += duration
                 elif status == "SKIPPED":
-                    print(f"  [-] {name} -> {message}")
+                    tqdm.write(f"  [-] {name} -> {message}")
                     skip_count += 1
                 elif status == "CANCELLED":
                     # Do nothing for cancelled tasks to keep the console clean
                     pass
                 else:  # FAILED
-                    print(f"  [!] {name} -> {message}")
+                    tqdm.write(f"  [!] {name} -> {message}")
                     fail_count += 1
                     failed_log.append((name, message))
             except Exception as e:
                 img_path = future_to_image[future]
-                print(f"  [!] {img_path} -> Unexpected Error: {e}")
+                tqdm.write(f"  [!] {img_path} -> Unexpected Error: {e}")
                 fail_count += 1
 
     # Calculate metrics
@@ -422,8 +451,15 @@ if __name__ == "__main__":
         default=1,
         help="Number of concurrent workers (Max 4 recommended)",
     )
+    # Logging argument
+    parser.add_argument(
+        "--log",
+        help="Path to the log file (e.g., --log logs/run.log). If omitted, logging is disabled."
+    )
 
     args = parser.parse_args()
+
+    setup_logging(args.log)
 
     if not os.path.isdir(args.directory):
         print(f"Error: The folder '{args.directory}' could not be located.")
