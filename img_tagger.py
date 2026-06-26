@@ -201,6 +201,7 @@ def _write_gif_tags(image_path: str,
     marker = "[PROCESSED_BY_AI]"
     tags_str = ", ".join(tags_list)
     with Image.open(image_path) as img:
+        # Map out all frames and animation configuration settings to avoid flattening
         frames = [f.copy() for f in ImageSequence.Iterator(img)]
         duration = img.info.get("duration", 100)
         loop = img.info.get("loop", 0)

@@ -43,7 +43,6 @@ def clear_tags(image_path):
         elif ext == "webp":
             with Image.open(image_path) as img:
                 img.load()
-                # Safely extract raw EXIF bytes rather than reading the file path directly
                 exif_bytes = img.info.get("exif", b"")
                 
                 try:
