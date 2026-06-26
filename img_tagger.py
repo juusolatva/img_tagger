@@ -313,7 +313,7 @@ def is_already_processed(img_path: Path) -> bool:
             if ext == "webp":
                 with Image.open(p) as img:
                     exif_bytes = img.info.get("exif", b"")
-                    exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
+                exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
             else:
                 exif_dict = piexif.load(str(p))
             user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
