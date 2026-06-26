@@ -24,31 +24,47 @@ def clear_tags(image_path):
 
         elif ext == "webp":
             exif_dict = piexif.load(str(image_path))
+            # Clear the specific keys we added
             exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
             exif_dict["0th"][piexif.ImageIFD.Software] = b""
 
             exif_bytes = piexif.dump(exif_dict)
             with Image.open(image_path) as img:
-                img.save(image_path, exif=exif_bytes, quality=95, method=6)
+                img.load()  # Ensure image is loaded into memory
+                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+                os.close(fd)
+
+                img.save(temp_path, exif=exif_bytes, quality=95, method=6)
+                os.replace(temp_path, image_path)
             print(f"  Cleared WebP metadata: {image_path.name}")
 
         elif ext == "png":
             with Image.open(image_path) as img:
+                img.load()  # Ensure image is loaded into memory
                 metadata = PngImagePlugin.PngInfo()
                 # Copy existing metadata except the ones we want to wipe
                 for k, v in img.info.items():
-                    if isinstance(v, str) and k not in ["Keywords", "Description"]:
-                        metadata.add_text(k, v)
+                    if k not in ["Keywords", "Description"]:
+                        if isinstance(v, str):
+                            metadata.add_text(k, v)
 
-                img.save(image_path, pnginfo=metadata, optimize=True)
+                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+                os.close(fd)
+
+                img.save(temp_path, pnginfo=metadata, optimize=True)
+                os.replace(temp_path, image_path)
             print(f"  Cleared PNG chunks: {image_path.name}")
 
         elif ext == "gif":
             with Image.open(image_path) as img:
-                # Saving with comment=None or an empty string clears the chunk
-                img.save(image_path, save_all=True, comment="")
-            print(f" Cleared GIF comment: {image_path.name}")
+                img.load()  # Ensure image is loaded into memory
+                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+                os.close(fd)
+
+                img.save(temp_path, save_all=True, comment="")
+                os.replace(temp_path, image_path)
+            print(f"  Cleared GIF comment: {image_path.name}")
 
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
