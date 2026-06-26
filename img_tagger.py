@@ -41,8 +41,6 @@ def setup_logging(log_path: str | None) -> None:
     if log_path is None:
         return
     
-    # Cast or handle Path to satisfy type checker if necessary, 
-    # but here we just need to ensure the logic works.
     path_obj = Path(log_path)
     # Create parent directory if it doesn't exist
     path_obj.parent.mkdir(parents=True, exist_ok=True)
@@ -154,7 +152,6 @@ def _write_exif_tags(image_path: str,
         
     elif ext == "webp":
         with Image.open(image_path) as img:
-            # Added quality=95 and method=6 for high-quality preservation
             fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
             os.close(fd)
 
@@ -182,7 +179,6 @@ def _write_png_tags(image_path: str,
 
         metadata.add_text("Keywords", tags_str)
         metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
-        # Added optimize=True to ensure best compression without quality loss
         fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
         os.close(fd)
 
@@ -296,7 +292,7 @@ def get_tags_lm_studio(client: Any,
         ],
     )
     content = response.choices[0].message.content
-    # Removed logging of 'content' to prevent massive log files due to base64 image data
+    # Removed logging of 'content' to prevent massive log files with base64 image data
     logging.debug(f"Raw LM Studio response received for {img_path}")
     return content
 
@@ -304,7 +300,6 @@ def get_tags_lm_studio(client: Any,
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
     marker = "[PROCESSED_BY_AI]"
-    # Convert to Path object to ensure .suffix works even if a string is passed
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
 
@@ -406,7 +401,7 @@ def process_directory(
     print(f"Initialized backend: {backend} | Target: {host}")
     print(f"Found {len(image_files)} images to process. Starting...\n")
 
-    # Optimized prompt targeting internet culture, memes, and UI screenshots
+    # The prompt works well enough for me but feel free to modify it.
     prompt = (
         "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
         "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
@@ -428,7 +423,7 @@ def process_directory(
             return
         client = OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
 
-    # Performance Metrics Initializers
+    # Initialize metrics
     success_count = 0
     fail_count = 0
     skip_count = 0
@@ -436,7 +431,7 @@ def process_directory(
     failed_log = []
     start_time = time.time()
 
-    # Concurrency & Quit Logic
+    # Concurrency and quitting
     stop_event = threading.Event()
     quit_thread = threading.Thread(
         target=listen_for_quit, args=(stop_event,), daemon=True
@@ -495,7 +490,7 @@ def process_directory(
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
 
-    # Output End Report
+    # Report summary
     print("\n" + "=" * 50)
     print("                PROCESSING REPORT")
     print("=" * 50)
@@ -541,14 +536,12 @@ if __name__ == "__main__":
         default="qwen3-vl:8b",
         help="Model identification tag (defaults to qwen3-vl:8b)",
     )
-    # New workers argument
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
         help="Number of concurrent workers (max 4, default 1)"
     )
-    # Logging argument
     parser.add_argument(
         "--log",
         help="Enable logging and create log file (e.g., --log logs/run.log)"
@@ -562,7 +555,7 @@ if __name__ == "__main__":
         print(f"Error: The folder '{args.directory}' could not be located.")
         sys.exit(1)
 
-    # Logic to enforce your rule of max 4 workers
+    # Max 4 workers as it's the default limit for both ollama and LM Studio.
     if args.workers > 4:
         print("Warning: Max workers set higher than 4.")
         args.workers = 4
