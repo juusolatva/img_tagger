@@ -132,7 +132,7 @@ def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
     exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
     exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
 
-    ext = image_path.lower().split(".")[-1]
+    ext = Path(image_path).suffix.lower()
     exif_bytes = piexif.dump(exif_dict)
 
     if ext in ["jpg", "jpeg"]:
@@ -178,7 +178,7 @@ def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
 
 def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
-    ext = image_path.lower().split(".")[-1]
+    ext = Path(image_path).suffix.lower()
     try:
         if ext in ["jpg", "jpeg"]:
             _write_exif_tags(image_path, tags_list)
