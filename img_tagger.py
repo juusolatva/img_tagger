@@ -30,7 +30,7 @@ except ImportError:
     OpenAI = None
 
 
-def listen_for_quit(stop_event):
+def listen_for_quit(stop_event: threading.Event) -> None:
     """Background thread to watch for 'q' keypress on Windows and Linux."""
     while not stop_event.is_set():
         if platform.system() == "Windows" and msvcrt is not None:
@@ -50,106 +50,104 @@ def listen_for_quit(stop_event):
                     break
 
 
-def is_valid_image(img_path):
+def is_valid_image(img_path: str) -> bool:
     """Checks if the file is a valid image type that Pillow can process."""
     try:
         with Image.open(img_path) as img:
             # Pillow verifies the file is a valid image by its header
             return img.format in ["JPEG", "PNG", "WEBP", "GIF"]
-    except:
+    except Exception:
         return False
 
 
-def tag_image(image_path, tags_list):
+def _get_exif_dict(image_path: str) -> dict:
+    """Helper to load or create an EXIF dictionary."""
+    try:
+        return piexif.load(image_path)
+    except Exception:
+        return {
+            "0th": {},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+            "thumbnail": None,
+        }
+
+def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
+    """Writes tags to JPEG/WEBP images using EXIF metadata."""
+    marker = "[PROCESSED_BY_AI]"
+    tags_str = ", ".join(tags_list)
+    exif_dict = _get_exif_dict(image_path)
+
+    user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
+        "ascii", errors="ignore"
+    )
+    exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
+    win_tags_str = ";".join(tags_list) + "\x00"
+    exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
+    exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
+
+    ext = image_path.lower().split(".")[-1]
+    exif_bytes = piexif.dump(exif_dict)
+
+    if ext in ["jpg", "jpeg"]:
+        # piexif.insert modifies the file in place without re-encoding pixels,
+        # ensuring zero quality loss for JPEGs.
+        piexif.insert(exif_bytes, image_path)
+    elif ext == "webp":
+        with Image.open(image_path) as img:
+            # Added quality=95 and method=6 for high-quality preservation
+            img.save(image_path, exif=exif_bytes, quality=95, method=6)
+
+def _write_png_tags(image_path: str, tags_list: list[str]) -> None:
+    """Writes tags to PNG images using PngInfo."""
+    marker = "[PROCESSED_BY_AI]"
+    tags_str = ", ".join(tags_list)
+    with Image.open(image_path) as img:
+        img.load()
+        metadata = PngImagePlugin.PngInfo()
+        for k, v in img.info.items():
+            if isinstance(v, str) and isinstance(k, str) and k not in ["Keywords", "Description"]:
+                metadata.add_text(k, v)
+
+        metadata.add_text("Keywords", tags_str)
+        metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
+        # Added optimize=True to ensure best compression without quality loss
+        img.save(image_path, pnginfo=metadata, optimize=True)
+
+def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
+    """Writes tags to GIF images using comments."""
+    marker = "[PROCESSED_BY_AI]"
+    tags_str = ", ".join(tags_list)
+    with Image.open(image_path) as img:
+        comment = f"{tags_str} {marker}"
+        if len(comment) > 254:
+            comment = comment[:253] + "\x00"
+        else:
+            comment += "\x00"
+        # save_all=True preserves animation frames
+        img.save(image_path, save_all=True, comment=comment)
+
+def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
     ext = image_path.lower().split(".")[-1]
-    marker = "[PROCESSED_BY_AI]"
-
-    # 1. Helper for EXIF dictionary (shared by JPEG and WEBP)
-    def get_exif_dict():
-        try:
-            return piexif.load(image_path)
-        except Exception:
-            return {
-                "0th": {},
-                "Exif": {},
-                "GPS": {},
-                "Interop": {},
-                "1st": {},
-                "thumbnail": None,
-            }
-
-    tags_str = ", ".join(tags_list)
-
-    # 2. Handle JPEG/WEBP logic (using EXIF)
-    if ext in ["jpg", "jpeg"]:
-        exif_dict = get_exif_dict()
-        user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
-            "ascii", errors="ignore"
-        )
-        exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
-        win_tags_str = ";".join(tags_list) + "\x00"
-        exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
-        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
-
-        try:
-            exif_bytes = piexif.dump(exif_dict)
-            # piexif.insert modifies the file in place without re-encoding pixels,
-            # ensuring zero quality loss for JPEGs.
-            piexif.insert(exif_bytes, image_path)
-        except Exception as e:
-            raise RuntimeError(f"EXIF injection failed: {e}")
-
-    elif ext == "webp":
-        exif_dict = get_exif_dict()
-        user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
-            "ascii", errors="ignore"
-        )
-        exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
-        win_tags_str = ";".join(tags_list) + "\x00"
-        exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
-        exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
-
-        try:
-            exif_bytes = piexif.dump(exif_dict)
-            with Image.open(image_path) as img:
-                # Added quality=95 and method=6 for high-quality preservation
-                img.save(image_path, exif=exif_bytes, quality=95, method=6)
-        except Exception as e:
-            raise RuntimeError(f"WebP EXIF injection failed: {e}")
-
-    elif ext == "png":
-        try:
-            with Image.open(image_path) as img:
-                img.load()
-                metadata = PngImagePlugin.PngInfo()
-                for k, v in img.info.items():
-                    if isinstance(v, str) and isinstance(k, str) and k not in ["Keywords", "Description"]:
-                        metadata.add_text(k, v)
-
-                metadata.add_text("Keywords", tags_str)
-                metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
-
-            # Added optimize=True to ensure best compression without quality loss
-            img.save(image_path, pnginfo=metadata, optimize=True)
-        except Exception as e:
-            raise RuntimeError(f"PNG chunk metadata write failed: {e}")
-
-    elif ext == "gif":
-        try:
-            with Image.open(image_path) as img:
-                comment = f"{tags_str} {marker}"
-                if len(comment) > 254:
-                    comment = comment[:253] + "\x00"
-                else:
-                    comment += "\x00"
-                # save_all=True preserves animation frames
-                img.save(image_path, save_all=True, comment=comment)
-        except Exception as e:
-            raise RuntimeError(f"GIF metadata write failed: {e}")
+    try:
+        if ext in ["jpg", "jpeg"]:
+            _write_exif_tags(image_path, tags_list)
+        elif ext == "webp":
+            _write_exif_tags(image_path, tags_list)
+        elif ext == "png":
+            _write_png_tags(image_path, tags_list)
+        elif ext == "gif":
+            _write_gif_tags(image_path, tags_list)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
+    except Exception as e:
+        raise RuntimeError(f"Tagging failed for {image_path}: {e}")
 
 
-def get_tags_ollama(client, model, img_path, prompt):
+def get_tags_ollama(client: OllamaClient, model: str, img_path: str, prompt: str) -> str:
     """Sends image payload to an Ollama server."""
     response = client.chat(
         model=model,
@@ -162,7 +160,7 @@ def get_tags_ollama(client, model, img_path, prompt):
     )
 
 
-def get_tags_lm_studio(client, model, img_path, prompt):
+def get_tags_lm_studio(client: OpenAI, model: str, img_path: str, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
@@ -185,7 +183,7 @@ def get_tags_lm_studio(client, model, img_path, prompt):
     return response.choices[0].message.content
 
 
-def is_already_processed(img_path):
+def is_already_processed(img_path: str) -> bool:
     """Checks if the image already contains the AI processed marker."""
     marker = "[PROCESSED_BY_AI]"
     # Convert to Path object to ensure .suffix works even if a string is passed
@@ -208,7 +206,14 @@ def is_already_processed(img_path):
     return False
 
 
-def process_single_image(img_path, client, backend, model, prompt, stop_event):
+def process_single_image(
+    img_path: str, 
+    client: any, 
+    backend: str, 
+    model: str, 
+    prompt: str, 
+    stop_event: threading.Event
+) -> tuple[str, str, str, float]:
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     if not is_valid_image(img_path):
         return "FAILED", img_path.name, "Skipping unsupported or corrupted file", 0
@@ -251,7 +256,14 @@ def process_single_image(img_path, client, backend, model, prompt, stop_event):
         return "FAILED", img_path.name, str(e), time.time() - start
 
 
-def process_directory(directory, recursive, backend, host, model, max_workers):
+def process_directory(
+    directory: str, 
+    recursive: bool, 
+    backend: str, 
+    host: str, 
+    model: str, 
+    max_workers: int
+) -> None:
     base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
