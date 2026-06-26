@@ -8,6 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import piexif
 from PIL import Image, PngImagePlugin
@@ -50,7 +51,7 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                     break
 
 
-def is_valid_image(img_path: str) -> bool:
+def is_valid_image(img_path: Path) -> bool:
     """Checks if the file is a valid image type that Pillow can process."""
     try:
         with Image.open(img_path) as img:
@@ -147,7 +148,7 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
         raise RuntimeError(f"Tagging failed for {image_path}: {e}")
 
 
-def get_tags_ollama(client: OllamaClient, model: str, img_path: str, prompt: str) -> str:
+def get_tags_ollama(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Sends image payload to an Ollama server."""
     response = client.chat(
         model=model,
@@ -160,7 +161,7 @@ def get_tags_ollama(client: OllamaClient, model: str, img_path: str, prompt: str
     )
 
 
-def get_tags_lm_studio(client: OpenAI, model: str, img_path: str, prompt: str) -> str:
+def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
@@ -183,7 +184,7 @@ def get_tags_lm_studio(client: OpenAI, model: str, img_path: str, prompt: str) -
     return response.choices[0].message.content
 
 
-def is_already_processed(img_path: str) -> bool:
+def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
     marker = "[PROCESSED_BY_AI]"
     # Convert to Path object to ensure .suffix works even if a string is passed
@@ -207,8 +208,8 @@ def is_already_processed(img_path: str) -> bool:
 
 
 def process_single_image(
-    img_path: str, 
-    client: any, 
+    img_path: Path, 
+    client: Any, 
     backend: str, 
     model: str, 
     prompt: str, 
