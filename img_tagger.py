@@ -195,20 +195,27 @@ def is_already_processed(img_path):
     return False
 
 
-def process_single_image(img_path, client, backend, model, prompt):
+def process_single_image(img_path, client, backend, model, prompt, stop_event):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     if not is_valid_image(img_path):
-        return "FAILED", img_path.name, "Skipping unsupported or corrupted file"
+        return "FAILED", img_path.name, f"Skipping unsupported or corrupted file"
 
     # Skip check
     if is_already_processed(img_path):
         return "SKIPPED", img_path.name, "Skipped: Already Tagged"
+
+    if stop_event.is_set():
+        return "CANCELLED", img_path.name, "Cancelled by user"
 
     try:
         if backend == "ollama":
             raw_output = get_tags_ollama(client, model, img_path, prompt)
         else:
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
+
+        # Check again after the network call before doing disk I/O
+        if stop_event.is_set():
+            return "CANCELLED", img_path.name, "Cancelled by user"
 
         # Clean the tags and check if we actually got anything
         tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
@@ -275,7 +282,13 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_image = {
             executor.submit(
-                process_single_image, img_path, client, backend, model, prompt
+                process_single_image,
+                img_path,
+                client,
+                backend,
+                model,
+                prompt,
+                stop_event,
             ): img_path
             for img_path in image_files
         }
