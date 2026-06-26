@@ -12,14 +12,30 @@ def clear_tags(image_path):
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg"]:
-            exif_dict = piexif.load(str(image_path))
+            try:
+                exif_dict = piexif.load(str(image_path))
+            except Exception:
+                # If there's no EXIF data, there are no tags to clear.
+                print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
+                return
+
             # Clear the specific keys we added
             exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
             exif_dict["0th"][piexif.ImageIFD.Software] = b""
 
             exif_bytes = piexif.dump(exif_dict)
-            piexif.insert(exif_bytes, str(image_path))
+
+            # Use the same temp-file pattern as other formats for consistency/safety
+            with Image.open(image_path) as img:
+                img.load()
+                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+                os.close(fd)
+                # Added format="JPEG" explicitly
+                img.save(
+                    temp_path, format="JPEG", exif=exif_bytes, quality=95, method=6
+                )
+                os.replace(temp_path, image_path)
             print(f"  Cleared EXIF for: {image_path.name}")
 
         elif ext == "webp":
@@ -35,7 +51,10 @@ def clear_tags(image_path):
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                img.save(temp_path, exif=exif_bytes, quality=95, method=6)
+                # Added format="WEBP" explicitly
+                img.save(
+                    temp_path, format="WEBP", exif=exif_bytes, quality=95, method=6
+                )
                 os.replace(temp_path, image_path)
             print(f"  Cleared WebP metadata: {image_path.name}")
 
@@ -52,7 +71,8 @@ def clear_tags(image_path):
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                img.save(temp_path, pnginfo=metadata, optimize=True)
+                # Added format="PNG" explicitly
+                img.save(temp_path, format="PNG", pnginfo=metadata, optimize=True)
                 os.replace(temp_path, image_path)
             print(f"  Cleared PNG chunks: {image_path.name}")
 
@@ -62,7 +82,8 @@ def clear_tags(image_path):
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                img.save(temp_path, save_all=True, comment="")
+                # Added format="GIF" explicitly
+                img.save(temp_path, format="GIF", save_all=True, comment="")
                 os.replace(temp_path, image_path)
             print(f"  Cleared GIF comment: {image_path.name}")
 
