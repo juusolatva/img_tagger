@@ -31,7 +31,7 @@ def clear_tags(image_path):
                 img.load()
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
-                # Added format="JPEG" explicitly
+                # Added format="JPEG" explicitly to prevent "unknown file extension" errors
                 img.save(
                     temp_path, format="JPEG", exif=exif_bytes, quality=95, method=6
                 )
@@ -39,7 +39,13 @@ def clear_tags(image_path):
             print(f"  Cleared EXIF for: {image_path.name}")
 
         elif ext == "webp":
-            exif_dict = piexif.load(str(image_path))
+            try:
+                exif_dict = piexif.load(str(image_path))
+            except Exception:
+                # If there's no EXIF data, there are no tags to clear.
+                print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
+                return
+
             # Clear the specific keys we added
             exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
