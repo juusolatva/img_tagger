@@ -19,7 +19,11 @@ def clear_tags(image_path):
                 print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
                 return
 
-            # Clear the specific keys we added
+            # Ensure necessary IFDs exist and clear specific keys
+            for ifd in ["Exif", "0th"]:
+                if ifd not in exif_dict:
+                    exif_dict[ifd] = {}
+
             exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
             exif_dict["0th"][piexif.ImageIFD.Software] = b""
@@ -46,7 +50,11 @@ def clear_tags(image_path):
                 print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
                 return
 
-            # Clear the specific keys we added
+            # Ensure necessary IFDs exist and clear specific keys
+            for ifd in ["Exif", "0th"]:
+                if ifd not in exif_dict:
+                    exif_dict[ifd] = {}
+
             exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
             exif_dict["0th"][piexif.ImageIFD.Software] = b""
@@ -68,17 +76,24 @@ def clear_tags(image_path):
             with Image.open(image_path) as img:
                 img.load()  # Ensure image is loaded into memory
                 metadata = PngImagePlugin.PngInfo()
-                # Copy existing metadata except the ones we want to wipe
-                for k, v in img.info.items():
-                    if k not in ["Keywords", "Description"]:
-                        if isinstance(v, str):
-                            metadata.add_text(k, v)
+                
+                new_info = {k: v for k, v in img.info.items() if k not in ["Keywords", "Description"]}
+                for k, v in new_info.items():
+                    if isinstance(v, str):
+                        metadata.add_text(k, v)
+
+                # Preserve ICC profile specifically as it's binary data and 
+                # won't be included in PngInfo metadata chunks by default
+                icc_profile = new_info.get("icc_profile")
 
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                # Added format="PNG" explicitly
-                img.save(temp_path, format="PNG", pnginfo=metadata, optimize=True)
+                save_params = {"format": "PNG", "pnginfo": metadata, "optimize": True}
+                if icc_profile:
+                    save_params["icc_profile"] = icc_profile
+
+                img.save(temp_path, **save_params)
                 os.replace(temp_path, image_path)
             print(f"  Cleared PNG chunks: {image_path.name}")
 
