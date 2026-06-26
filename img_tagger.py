@@ -381,7 +381,7 @@ def process_directory(
     # Optimized prompt targeting internet culture, memes, and UI screenshots
     prompt = (
         "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
-        "Extract 6 to 12 highly relevant keywords. "
+        "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
         "1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo'). "
         "2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text. "
         "3. If it is a screenshot, summarize the main topic or software shown. "
