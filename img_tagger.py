@@ -373,9 +373,9 @@ if __name__ == "__main__":
         default="qwen3-vl:8b",
         help="Model identification tag (Mainly for Ollama)",
     )
-    # New worker argument
+    # New workers argument
     parser.add_argument(
-        "--worker",
+        "--workers",
         type=int,
         default=1,
         help="Number of concurrent workers (Max 4 recommended)",
@@ -388,10 +388,10 @@ if __name__ == "__main__":
         exit(1)
 
     # Logic to enforce your rule of max 4 workers
-    if args.worker > 4:
+    if args.workers > 4:
         print("Warning: Max workers set higher than 4.")
-        args.worker = 4
-    elif args.worker < 1:
+        args.workers = 4
+    elif args.workers < 1:
         print("Error: Worker count must be at least 1.")
         exit(1)
 
@@ -403,5 +403,10 @@ if __name__ == "__main__":
         )
 
     process_directory(
-        args.directory, args.recursive, args.backend, args.host, args.model, args.worker
+        args.directory,
+        args.recursive,
+        args.backend,
+        args.host,
+        args.model,
+        args.workers,
     )
