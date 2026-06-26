@@ -6,33 +6,33 @@ import select
 import sys
 import threading
 import time
+import logging
+import piexif
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
-
-import piexif
 from PIL import Image, PngImagePlugin
 
-# Try importing backends safely
 try:
     import msvcrt
 except ImportError:
     msvcrt = None
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = None
+    tty = None
 
-# Try importing backends safely
 try:
     from ollama import Client as OllamaClient
 except ImportError:
     OllamaClient = None
-
 try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
-
-# Logging setup
-import logging
 
 
 def setup_logging(log_path: str | None) -> None:
@@ -55,22 +55,42 @@ def setup_logging(log_path: str | None) -> None:
 
 def listen_for_quit(stop_event: threading.Event) -> None:
     """Background thread to watch for 'q' keypress on Windows and Linux."""
-    while not stop_event.is_set():
-        if platform.system() == "Windows" and msvcrt is not None:
+    if platform.system() == "Windows" and msvcrt is not None:
+        while not stop_event.is_set():
             if msvcrt.kbhit():
                 key = msvcrt.getch().decode("utf-8").lower()
                 if key == "q":
                     stop_event.set()
                     break
-        else:
-            # Linux and macOS logic
-            # select.select([file], [outputs], [exceptions], timeout)
-            # We check if there is data available to read from stdin (fileno 0)
-            if select.select([sys.stdin], [], [], 0.1)[0]:
-                char = sys.stdin.read(1).lower()
-                if char == "q":
-                    stop_event.set()
-                    break
+    else:
+        try:
+            # Ensure termios and tty are available (not None from top-level import)
+            if termios is None or tty is None:
+                raise ImportError("termios/tty not available")
+
+            fd = sys.stdin.fileno()
+            # Save original terminal settings using getattr to satisfy static analysis
+            old_settings = getattr(termios, "tcgetattr")(fd)
+            try:
+                # Switch to cbreak mode (unbuffered, but handles Ctrl+C)
+                getattr(tty, "setcbreak")(fd)
+                while not stop_event.is_set():
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        char = sys.stdin.read(1).lower()
+                        if char == "q":
+                            stop_event.set()
+                            break
+            finally:
+                # Always restore original settings
+                getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
+        except (ImportError, AttributeError, Exception):
+            # Fallback for systems where termios/tty are not available or if in a non-interactive shell
+            while not stop_event.is_set():
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    char = sys.stdin.read(1).lower()
+                    if char == "q":
+                        stop_event.set()
+                        break
 
 
 def is_valid_image(img_path: Path) -> bool:
@@ -413,7 +433,7 @@ def process_directory(
     print(f" Processed images: {success_count}")
     print(f" Skipped images: {skip_count}")
     print(f" Failed images: {fail_count}")
-    print(f" Total time relapsed: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
+    print(f" Total time elapsed: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
 
     if success_count > 0:
         avg_latency = total_success_duration / success_count
