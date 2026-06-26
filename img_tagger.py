@@ -532,7 +532,7 @@ if __name__ == "__main__":
 
     if not os.path.isdir(args.directory):
         print(f"Error: The folder '{args.directory}' could not be located.")
-        exit(1)
+        sys.exit(1)
 
     # Logic to enforce your rule of max 4 workers
     if args.workers > 4:
@@ -540,7 +540,7 @@ if __name__ == "__main__":
         args.workers = 4
     elif args.workers < 1:
         print("Error: Worker count must be at least 1.")
-        exit(1)
+        sys.exit(1)
 
     if not args.host:
         args.host = (
