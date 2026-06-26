@@ -6,6 +6,7 @@ import select
 import sys
 import threading
 import time
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -334,7 +335,7 @@ def process_directory(
         }
 
         stopped_notified = False
-        for future in as_completed(future_to_image):
+        for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
             if stop_event.is_set() and not stopped_notified:
                 print(
                     "\n  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
