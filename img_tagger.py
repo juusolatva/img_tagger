@@ -388,8 +388,8 @@ def process_directory(
         print(f"No valid images found in '{directory}'.")
         return
 
-    print(f"Initialized backend: {backend.upper()} | Target: {host}")
-    print(f"Found {len(image_files)} images to process. Let's begin...\n")
+    print(f"Initialized backend: {backend} | Target: {host}")
+    print(f"Found {len(image_files)} images to process. Starting...\n")
 
     # Optimized prompt targeting internet culture, memes, and UI screenshots
     prompt = (
