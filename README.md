@@ -1,6 +1,6 @@
 # Image tagger using a vision-language model
 
-Tags all the JPEG, WebP, PNG and GIF files in the directory (and possibly subdirectories) by sending them to a locally running vision-language model (either on ollama or LM Studio). The tags the model sends back and they are added as metadata to the files.
+Tags all the JPEG, WebP, PNG and GIF files in the directory (and possibly subdirectories) by sending them to a locally running vision-language model (either on ollama or LM Studio). The tags the model sends back are added as metadata to the files.
 
 ## Features
 
