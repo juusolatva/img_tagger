@@ -12,9 +12,11 @@ from pathlib import Path
 import piexif
 from PIL import Image, PngImagePlugin
 
-# Platform-specific imports for key detection
-if platform.system() == "Windows":
+# Try importing backends safely
+try:
     import msvcrt
+except ImportError:
+    msvcrt = None
 
 # Try importing backends safely
 try:
@@ -31,7 +33,7 @@ except ImportError:
 def listen_for_quit(stop_event):
     """Background thread to watch for 'q' keypress on Windows and Linux."""
     while not stop_event.is_set():
-        if platform.system() == "Windows":
+        if platform.system() == "Windows" and msvcrt is not None:
             if msvcrt.kbhit():
                 key = msvcrt.getch().decode("utf-8").lower()
                 if key == "q":
@@ -122,7 +124,7 @@ def tag_image(image_path, tags_list):
                 img.load()
                 metadata = PngImagePlugin.PngInfo()
                 for k, v in img.info.items():
-                    if isinstance(v, str) and k not in ["Keywords", "Description"]:
+                    if isinstance(v, str) and isinstance(k, str) and k not in ["Keywords", "Description"]:
                         metadata.add_text(k, v)
 
                 metadata.add_text("Keywords", tags_str)
