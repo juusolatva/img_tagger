@@ -1,4 +1,4 @@
-# Image tagger using a vision-language model
+# Image tagger using a vision language model
 
 Tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and possibly subdirectories) by sending them to a locally running vision-language model (either **ollama** or **LM Studio** on the same computer or the local network). The tags the model sends back are added as metadata to the files.
 
@@ -21,7 +21,7 @@ Tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and
 Clone the repository and run *img_tagger.py* with Python.
 
 ### System prerequisites
-You must have Python and either **ollama** or **LM Studio** with a Vision-capable model for processing the images.
+You must have Python and either **ollama** or **LM Studio** with a vision-capable model for processing the images.
 
 ### Installing dependencies
 *pip install -r requirements.txt*
@@ -31,11 +31,13 @@ You must have Python and either **ollama** or **LM Studio** with a Vision-capabl
 
 
 ### Notes
-Run *img_tagger.py -h* or *img_tagger.py --help* to see arguments and options.
-Press `Q` to quit and then wait for it to finish all the work in progress.
-The script doesn't respect preexisting tags so keep in mind that they will be overwritten.
-The default model is Qwen3 VL 8B since it works well but any model capable of processing image inputs should work.
-If you need to you can clear all the tags in a folder using the *clear_tags.py* script.
+- Run *img_tagger.py -h* or *img_tagger.py --help* to see arguments and options
+- Press `Q` to quit and then wait for it to finish all the work in progress
+- The script doesn't respect preexisting tags so keep in mind that they will be overwritten
+- The default model is Qwen3 VL 8B since it works well but any model capable of processing image inputs should work
+- If you need to you can clear all the tags in a folder using the *clear_tags.py* script
 
 ### Known issues
-Animated **WebPs** are not supported. Pillow may have issues with some **PNGs** or **GIFs**. Large animated **GIFs** are not recommended.
+- Animated **WebPs** are not supported
+- May have issues with some **PNGs** or **GIFs**
+- Large animated **GIFs** are not recommended
