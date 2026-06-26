@@ -1,6 +1,6 @@
 # Image tagger using a vision language model
 
-Tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and possibly subdirectories) by sending them to a locally running vision language model (either **ollama** or **LM Studio** running on the same computer or the local network). The tags the model sends back are added as metadata to the files which means that the quality of the tags depends on the model.
+Tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and possibly subdirectories) by sending them to a locally running vision language model (either **ollama** or **LM Studio** running on the same computer or the local network). The tags the model sends back are added as metadata to the files and the quality of the tags heavily depends on the model.
 
 ## Features
 
