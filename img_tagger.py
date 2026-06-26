@@ -312,11 +312,13 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
             for img_path in image_files
         }
 
-        # Move the result loop INSIDE the context manager
+        stopped_notified = False
         for future in as_completed(future_to_image):
-            if stop_event.is_set():
-                print("\n[!] Stop signal received (Q pressed). Stopping new tasks...")
-                break
+            if stop_event.is_set() and not stopped_notified:
+                print(
+                    "\n  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
+                )
+                stopped_notified = True
 
             try:
                 status, name, message, duration = future.result()
@@ -327,12 +329,14 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
                 elif status == "SKIPPED":
                     print(f"  [-] {name} -> {message}")
                     skip_count += 1
+                elif status == "CANCELLED":
+                    # Do nothing for cancelled tasks to keep the console clean
+                    pass
                 else:  # FAILED
                     print(f"  [!] {name} -> {message}")
                     fail_count += 1
                     failed_log.append((name, message))
             except Exception as e:
-                # Handle cases where the task itself raised an unhandled exception
                 img_path = future_to_image[future]
                 print(f"  [!] {img_path} -> Unexpected Error: {e}")
                 fail_count += 1
