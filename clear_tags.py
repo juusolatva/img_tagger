@@ -1,6 +1,7 @@
 import argparse
 import os
 import tempfile
+import shutil
 from pathlib import Path
 
 import piexif
@@ -30,17 +31,22 @@ def clear_tags(image_path):
 
             exif_bytes = piexif.dump(exif_dict)
 
-            # Use the same temp-file pattern as other formats for consistency/safety
-            with Image.open(image_path) as img:
-                img.load()
-                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
-                os.close(fd)
-                # Added format="JPEG" explicitly to prevent "unknown file extension" errors
-                img.save(
-                    temp_path, format="JPEG", exif=exif_bytes, quality=95, method=6
-                )
+            # Atomic + Lossless approach:
+            fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+            os.close(fd)
+
+            try:
+                # 1. Copy original file to temp path (preserves all original pixel data)
+                shutil.copy2(image_path, temp_path)
+                # 2. Modify metadata in-place on the temp file
+                piexif.insert(exif_bytes, temp_path)
+                # 3. Atomically replace the original
                 os.replace(temp_path, image_path)
-            print(f"  Cleared EXIF for: {image_path.name}")
+                print(f"  Cleared EXIF tags for: {image_path.name}")
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise e
 
         elif ext == "webp":
             try:
