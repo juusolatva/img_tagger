@@ -14,7 +14,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
-from PIL import Image, PngImagePlugin
+from PIL import Image, ImageSequence, PngImagePlugin
 
 try:
     import msvcrt
@@ -159,7 +159,7 @@ def _write_exif_tags(image_path: str,
             os.close(fd)
 
             try:
-                img.save(temp_path, exif=exif_bytes, lossless=True, quality=100, method=6, format="WEBP")
+                img.save(temp_path, exif=exif_bytes, quality=95, method=6, format="WEBP")
                 os.replace(temp_path, image_path)
             except Exception as e:
                 if os.path.exists(temp_path):
@@ -187,7 +187,10 @@ def _write_png_tags(image_path: str,
         os.close(fd)
 
         try:
-            img.save(temp_path, pnginfo=metadata, optimize=True, format="PNG")
+            save_kwargs = {"pnginfo": metadata, "optimize": True, "format": "PNG"}
+            if "icc_profile" in img.info:
+                save_kwargs["icc_profile"] = img.info["icc_profile"]
+            img.save(temp_path, **save_kwargs)
             os.replace(temp_path, image_path)
         except Exception as e:
             if os.path.exists(temp_path):
@@ -202,22 +205,29 @@ def _write_gif_tags(image_path: str,
     marker = "[PROCESSED_BY_AI]"
     tags_str = ", ".join(tags_list)
     with Image.open(image_path) as img:
-        comment = f"{tags_str} {marker}"
-        if len(comment) > 254:
-            comment = comment[:253] + "\x00"
-        else:
-            comment += "\x00"
-        # save_all=True preserves animation frames
-        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-        os.close(fd)
+        frames = [f.copy() for f in ImageSequence.Iterator(img)]
+        duration = img.info.get("duration", 100)
+        loop = img.info.get("loop", 0)
+    
+    comment = f"{tags_str} {marker}\x00"
+    fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+    os.close(fd)
 
-        try:
-            img.save(temp_path, save_all=True, comment=comment, format="GIF")
-            os.replace(temp_path, image_path)
-        except Exception as e:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise e
+    try:
+        frames[0].save(
+            temp_path,
+            save_all=True,
+            append_images=frames[1:],
+            comment=comment,
+            duration=duration,
+            loop=loop,
+            format="GIF"
+        )
+        os.replace(temp_path, image_path)
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise e
 
 
 def tag_image(image_path: str, 
@@ -300,7 +310,12 @@ def is_already_processed(img_path: Path) -> bool:
 
     try:
         if ext in ["jpg", "jpeg", "webp"]:
-            exif_dict = piexif.load(str(p))
+            if ext == "webp":
+                with Image.open(p) as img:
+                    exif_bytes = img.info.get("exif", b"")
+                    exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
+            else:
+                exif_dict = piexif.load(str(p))
             user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
             return marker.encode("ascii") in user_comment
         elif ext == "png":
