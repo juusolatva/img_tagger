@@ -2,25 +2,22 @@ import argparse
 import os
 import tempfile
 import shutil
-from pathlib import Path
-
 import piexif
-from PIL import Image, PngImagePlugin
+from pathlib import Path
+from PIL import Image, ImageSequence, PngImagePlugin
 
 
 def clear_tags(image_path):
-    """Removes added tags and markers from various image formats."""
+    """Removes added tags and markers from various image formats without breaking animations or metadata profiles."""
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg"]:
             try:
                 exif_dict = piexif.load(str(image_path))
             except Exception:
-                # If there's no EXIF data, there are no tags to clear.
                 print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
                 return
 
-            # Ensure necessary IFDs exist and clear specific keys
             for ifd in ["Exif", "0th"]:
                 if ifd not in exif_dict:
                     exif_dict[ifd] = {}
@@ -30,17 +27,12 @@ def clear_tags(image_path):
             exif_dict["0th"][piexif.ImageIFD.Software] = b""
 
             exif_bytes = piexif.dump(exif_dict)
-
-            # Atomic + Lossless approach:
             fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
             os.close(fd)
 
             try:
-                # 1. Copy original file to temp path (preserves all original pixel data)
                 shutil.copy2(image_path, temp_path)
-                # 2. Modify metadata in-place on the temp file
                 piexif.insert(exif_bytes, temp_path)
-                # 3. Atomically replace the original
                 os.replace(temp_path, image_path)
                 print(f"  Cleared EXIF tags for: {image_path.name}")
             except Exception as e:
@@ -49,38 +41,42 @@ def clear_tags(image_path):
                 raise e
 
         elif ext == "webp":
-            try:
-                exif_dict = piexif.load(str(image_path))
-            except Exception:
-                # If there's no EXIF data, there are no tags to clear.
-                print(f"  No EXIF metadata found for: {image_path.name} (skipping)")
-                return
-
-            # Ensure necessary IFDs exist and clear specific keys
-            for ifd in ["Exif", "0th"]:
-                if ifd not in exif_dict:
-                    exif_dict[ifd] = {}
-
-            exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
-            exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
-            exif_dict["0th"][piexif.ImageIFD.Software] = b""
-
-            exif_bytes = piexif.dump(exif_dict)
             with Image.open(image_path) as img:
-                img.load()  # Ensure image is loaded into memory
+                img.load()
+                # Safely extract raw EXIF bytes rather than reading the file path directly
+                exif_bytes = img.info.get("exif", b"")
+                
+                try:
+                    exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}, "0th": {}}
+                except Exception:
+                    exif_dict = {"Exif": {}, "0th": {}}
+
+                for ifd in ["Exif", "0th"]:
+                    if ifd not in exif_dict:
+                        exif_dict[ifd] = {}
+
+                exif_dict["Exif"][piexif.ExifIFD.UserComment] = b""
+                exif_dict["0th"][piexif.ImageIFD.XPKeywords] = b""
+                exif_dict["0th"][piexif.ImageIFD.Software] = b""
+
+                cleaned_exif_bytes = piexif.dump(exif_dict)
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                # Added format="WEBP" explicitly
-                img.save(
-                    temp_path, format="WEBP", exif=exif_bytes, quality=95, method=6
-                )
-                os.replace(temp_path, image_path)
-            print(f"  Cleared WebP metadata: {image_path.name}")
+                try:
+                    img.save(
+                        temp_path, format="WEBP", exif=cleaned_exif_bytes, quality=95, method=6
+                    )
+                    os.replace(temp_path, image_path)
+                    print(f"  Cleared WebP metadata: {image_path.name}")
+                except Exception as e:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise e
 
         elif ext == "png":
             with Image.open(image_path) as img:
-                img.load()  # Ensure image is loaded into memory
+                img.load()
                 metadata = PngImagePlugin.PngInfo()
                 
                 new_info = {k: v for k, v in img.info.items() if k not in ["Keywords", "Description"]}
@@ -88,31 +84,50 @@ def clear_tags(image_path):
                     if isinstance(k, str) and isinstance(v, str):
                         metadata.add_text(k, v)
 
-                # Preserve ICC profile specifically as it's binary data and 
-                # won't be included in PngInfo metadata chunks by default
                 icc_profile = new_info.get("icc_profile")
-
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                save_params = {"format": "PNG", "pnginfo": metadata, "optimize": True}
-                if icc_profile:
-                    save_params["icc_profile"] = icc_profile
+                try:
+                    save_params = {"format": "PNG", "pnginfo": metadata, "optimize": True}
+                    if icc_profile:
+                        save_params["icc_profile"] = icc_profile
 
-                img.save(temp_path, **save_params)
-                os.replace(temp_path, image_path)
-            print(f"  Cleared PNG chunks: {image_path.name}")
+                    img.save(temp_path, **save_params)
+                    os.replace(temp_path, image_path)
+                    print(f"  Cleared PNG chunks: {image_path.name}")
+                except Exception as e:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise e
 
         elif ext == "gif":
             with Image.open(image_path) as img:
-                img.load()  # Ensure image is loaded into memory
+                img.load()
+                # Map out all frames and animation configuration settings to avoid flattening
+                frames = [f.copy() for f in ImageSequence.Iterator(img)]
+                duration = img.info.get("duration", 100)
+                loop = img.info.get("loop", 0)
+
                 fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
                 os.close(fd)
 
-                # Added format="GIF" explicitly
-                img.save(temp_path, format="GIF", save_all=True, comment="")
-                os.replace(temp_path, image_path)
-            print(f"  Cleared GIF comment: {image_path.name}")
+                try:
+                    frames[0].save(
+                        temp_path, 
+                        format="GIF", 
+                        save_all=True, 
+                        append_images=frames[1:], 
+                        duration=duration, 
+                        loop=loop, 
+                        comment=""
+                    )
+                    os.replace(temp_path, image_path)
+                    print(f"  Cleared GIF comment: {image_path.name}")
+                except Exception as e:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise e
 
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
