@@ -79,7 +79,7 @@ def clear_tags(image_path):
                 
                 new_info = {k: v for k, v in img.info.items() if k not in ["Keywords", "Description"]}
                 for k, v in new_info.items():
-                    if isinstance(v, str):
+                    if isinstance(k, str) and isinstance(v, str):
                         metadata.add_text(k, v)
 
                 # Preserve ICC profile specifically as it's binary data and 
