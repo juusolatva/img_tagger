@@ -225,10 +225,6 @@ def process_single_image(img_path, client, backend, model, prompt, stop_event):
         else:
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
 
-        # Check again after the network call before doing disk I/O
-        if stop_event.is_set():
-            return "CANCELLED", img_path.name, "Cancelled by user", time.time() - start
-
         # Clean the tags and check if we actually got anything
         tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
 
@@ -351,17 +347,17 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     print("\n" + "=" * 50)
     print("                PROCESSING REPORT")
     print("=" * 50)
-    print(f" Successfully Processed : {success_count}")
-    print(f" Skipped (Already Tagged): {skip_count}")
-    print(f" Failed Images          : {fail_count}")
-    print(f" Total Time Elapsed     : {int(hours)}h {int(minutes)}m {seconds:.2f}s")
+    print(f" Processed images: {success_count}")
+    print(f" Skipped images: {skip_count}")
+    print(f" Failed images: {fail_count}")
+    print(f" Total time relapsed: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
 
     if success_count > 0:
         avg_latency = total_success_duration / success_count
-        print(f" Average Latency (Successes Only): {avg_latency:.2f} seconds")
+        print(f" Average processing time: {avg_latency:.2f} seconds")
 
     if failed_log:
-        print("\n--- Failed Files Details ---")
+        print("\n--- Failed files details ---")
         for filename, error_msg in failed_log:
             print(f" * {filename} -> {error_msg}")
 
@@ -370,7 +366,7 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="AI Media Library Tagger with Execution Reports"
+        description="Image tagger using a visual-language model"
     )
     parser.add_argument("directory", help="Path to your image folder")
     parser.add_argument(
