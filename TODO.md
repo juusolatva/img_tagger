@@ -9,6 +9,6 @@
 - [ ] Model output should be parsed for to check it actually contains tags
 
 ## Image file format handling
-- [ ] Fix memory usage for large animated GIFs
-- [ ] Fix WebP encoding quality and handling of animated WebPs
-- [ ] Fix how Pillow limits the handling of some PNGs and GIFs
+- [ ] Set a limit for memory usage with large animated GIFs
+- [ ] Test that animated WebPs are handled properly
+- [ ] Test PNGs and GIFs with non-standard chunks
