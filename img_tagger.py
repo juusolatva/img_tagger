@@ -209,15 +209,16 @@ def is_already_processed(img_path):
 def process_single_image(img_path, client, backend, model, prompt, stop_event):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     if not is_valid_image(img_path):
-        return "FAILED", img_path.name, "Skipping unsupported or corrupted file"
+        return "FAILED", img_path.name, "Skipping unsupported or corrupted file", 0
 
     # Skip check
     if is_already_processed(img_path):
-        return "SKIPPED", img_path.name, "Skipped: Already Tagged"
+        return "SKIPPED", img_path.name, "Skipped: Already Tagged", 0
 
     if stop_event.is_set():
-        return "CANCELLED", img_path.name, "Cancelled by user"
+        return "CANCELLED", img_path.name, "Cancelled by user", 0
 
+    start = time.time()  # Start timing the actual processing
     try:
         if backend == "ollama":
             raw_output = get_tags_ollama(client, model, img_path, prompt)
@@ -226,20 +227,30 @@ def process_single_image(img_path, client, backend, model, prompt, stop_event):
 
         # Check again after the network call before doing disk I/O
         if stop_event.is_set():
-            return "CANCELLED", img_path.name, "Cancelled by user"
+            return "CANCELLED", img_path.name, "Cancelled by user", time.time() - start
 
         # Clean the tags and check if we actually got anything
         tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
 
         if tags:
             tag_image(str(img_path), tags)
-            return "SUCCESS", img_path.name, f"Generated Tags: {tags}"
+            return (
+                "SUCCESS",
+                img_path.name,
+                f"Generated Tags: {tags}",
+                time.time() - start,
+            )
         else:
-            return "FAILED", img_path.name, "Empty tags list returned from model"
+            return (
+                "FAILED",
+                img_path.name,
+                "Empty tags list returned from model",
+                time.time() - start,
+            )
 
     except Exception as e:
         # Catching the specific error to show it in the report
-        return "FAILED", img_path.name, str(e)
+        return "FAILED", img_path.name, str(e), time.time() - start
 
 
 def process_directory(directory, recursive, backend, host, model, max_workers):
@@ -277,6 +288,7 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     success_count = 0
     fail_count = 0
     skip_count = 0
+    total_success_duration = 0.0
     failed_log = []
     start_time = time.time()
 
@@ -304,22 +316,30 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
             for img_path in image_files
         }
 
+        # Move the result loop INSIDE the context manager
         for future in as_completed(future_to_image):
             if stop_event.is_set():
                 print("\n[!] Stop signal received (Q pressed). Stopping new tasks...")
                 break
 
-            status, name, message = future.result()
-            if status == "SUCCESS":
-                print(f"  [✓] {name} -> {message}")
-                success_count += 1
-            elif status == "SKIPPED":
-                print(f"  [-] {name} -> {message}")
-                skip_count += 1
-            else:  # FAILED
-                print(f"  [!] {name} -> {message}")
+            try:
+                status, name, message, duration = future.result()
+                if status == "SUCCESS":
+                    print(f"  [✓] {name} -> {message}")
+                    success_count += 1
+                    total_success_duration += duration
+                elif status == "SKIPPED":
+                    print(f"  [-] {name} -> {message}")
+                    skip_count += 1
+                else:  # FAILED
+                    print(f"  [!] {name} -> {message}")
+                    fail_count += 1
+                    failed_log.append((name, message))
+            except Exception as e:
+                # Handle cases where the task itself raised an unhandled exception
+                img_path = future_to_image[future]
+                print(f"  [!] {img_path} -> Unexpected Error: {e}")
                 fail_count += 1
-                failed_log.append((name, message))
 
     # Calculate metrics
     end_time = time.time()
@@ -337,8 +357,8 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     print(f" Total Time Elapsed     : {int(hours)}h {int(minutes)}m {seconds:.2f}s")
 
     if success_count > 0:
-        avg_speed = total_seconds / success_count
-        print(f" Average Processing Speed: {avg_speed:.2f} seconds per image")
+        avg_latency = total_success_duration / success_count
+        print(f" Average Latency (Successes Only): {avg_latency:.2f} seconds")
 
     if failed_log:
         print("\n--- Failed Files Details ---")
