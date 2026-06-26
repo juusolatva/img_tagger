@@ -7,6 +7,8 @@ import sys
 import threading
 import time
 import logging
+import shutil
+import tempfile
 import piexif
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -118,7 +120,9 @@ def _get_exif_dict(image_path: str) -> dict:
         }
 
 
-def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
+def _write_exif_tags(image_path: str, 
+                     tags_list: list[str]
+                     ) -> None:
     """Writes tags to JPEG/WEBP images using EXIF metadata."""
     marker = "[PROCESSED_BY_AI]"
     tags_str = ", ".join(tags_list)
@@ -136,16 +140,33 @@ def _write_exif_tags(image_path: str, tags_list: list[str]) -> None:
     exif_bytes = piexif.dump(exif_dict)
 
     if ext in ["jpg", "jpeg"]:
-        # piexif.insert modifies the file in place without re-encoding pixels,
-        # ensuring zero quality loss for JPEGs.
-        piexif.insert(exif_bytes, image_path)
+        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+        os.close(fd)
+
+        try:
+            # 1. Copy original file to temp path (preserves all original pixel data)
+            shutil.copy2(image_path, temp_path)
+            # 2. Modify metadata in-place on the temp file
+            piexif.insert(exif_bytes, temp_path)
+            # 3. Atomically replace the original
+            os.replace(temp_path, image_path)
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise e
     elif ext == "webp":
         with Image.open(image_path) as img:
             # Added quality=95 and method=6 for high-quality preservation
-            img.save(image_path, exif=exif_bytes, quality=95, method=6)
+            fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+            os.close(fd)
+
+            img.save(temp_path, exif=exif_bytes, quality=95, method=6, format="WEBP")
+            os.replace(temp_path, image_path)
 
 
-def _write_png_tags(image_path: str, tags_list: list[str]) -> None:
+def _write_png_tags(image_path: str, 
+                    tags_list: list[str]
+                    ) -> None:
     """Writes tags to PNG images using PngInfo."""
     marker = "[PROCESSED_BY_AI]"
     tags_str = ", ".join(tags_list)
@@ -159,10 +180,16 @@ def _write_png_tags(image_path: str, tags_list: list[str]) -> None:
         metadata.add_text("Keywords", tags_str)
         metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
         # Added optimize=True to ensure best compression without quality loss
-        img.save(image_path, pnginfo=metadata, optimize=True)
+        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+        os.close(fd)
+
+        img.save(temp_path, pnginfo=metadata, optimize=True, format="PNG")
+        os.replace(temp_path, image_path)
 
 
-def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
+def _write_gif_tags(image_path: str, 
+                    tags_list: list[str]
+                    ) -> None:
     """Writes tags to GIF images using comments."""
     marker = "[PROCESSED_BY_AI]"
     tags_str = ", ".join(tags_list)
@@ -173,10 +200,16 @@ def _write_gif_tags(image_path: str, tags_list: list[str]) -> None:
         else:
             comment += "\x00"
         # save_all=True preserves animation frames
-        img.save(image_path, save_all=True, comment=comment)
+        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+        os.close(fd)
+
+        img.save(temp_path, save_all=True, comment=comment, format="GIF")
+        os.replace(temp_path, image_path)
 
 
-def tag_image(image_path: str, tags_list: list[str]) -> None:
+def tag_image(image_path: str, 
+              tags_list: list[str]
+              ) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
     ext = Path(image_path).suffix.lower()
     try:
@@ -194,7 +227,11 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
         raise RuntimeError(f"Tagging failed for {image_path}: {e}")
 
 
-def get_tags_ollama(client: Any, model: str, img_path: Path, prompt: str) -> str:
+def get_tags_ollama(client: Any, 
+                    model: str, 
+                    img_path: Path, 
+                    prompt: str
+                    ) -> str:
     """Sends image payload to an Ollama server."""
     logging.debug(f"Requesting tags from Ollama ({model}) for {img_path}")
     response = client.chat(
@@ -210,7 +247,11 @@ def get_tags_ollama(client: Any, model: str, img_path: Path, prompt: str) -> str
     return content
 
 
-def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
+def get_tags_lm_studio(client: Any, 
+                       model: str, 
+                       img_path: Path, 
+                       prompt: str
+                       ) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
     with open(img_path, "rb") as image_file:
@@ -267,7 +308,7 @@ def process_single_image(
     model: str, 
     prompt: str, 
     stop_event: threading.Event
-) -> tuple[str, str, str, float]:
+    ) -> tuple[str, str, str, float]:
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     logging.info(f"Processing {img_path.name}")
     if not is_valid_image(img_path):
@@ -322,7 +363,7 @@ def process_directory(
     host: str, 
     model: str, 
     max_workers: int
-) -> None:
+    ) -> None:
     base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
