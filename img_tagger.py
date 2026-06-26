@@ -278,8 +278,14 @@ def process_directory(directory, recursive, backend, host, model, max_workers):
     )
 
     if backend == "ollama":
+        if OllamaClient is None:
+            print("Error: 'ollama' library not found. Please install it using 'pip install ollama'.")
+            return
         client = OllamaClient(host=host)
     else:
+        if OpenAI is None:
+            print("Error: 'openai' library not found. Please install it using 'pip install openai'.")
+            return
         client = OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
 
     # Performance Metrics Initializers
