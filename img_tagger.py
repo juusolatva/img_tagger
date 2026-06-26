@@ -209,7 +209,7 @@ def is_already_processed(img_path):
 def process_single_image(img_path, client, backend, model, prompt, stop_event):
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
     if not is_valid_image(img_path):
-        return "FAILED", img_path.name, f"Skipping unsupported or corrupted file"
+        return "FAILED", img_path.name, "Skipping unsupported or corrupted file"
 
     # Skip check
     if is_already_processed(img_path):
