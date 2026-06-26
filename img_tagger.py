@@ -1,9 +1,11 @@
-import argparse
+:Eimport argparse
 import base64
 import os
 import platform
 import threading
 import time
+import sys
+import select
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -33,6 +35,15 @@ def listen_for_quit(stop_event):
             if msvcrt.kbhit():
                 key = msvcrt.getch().decode("utf-8").lower()
                 if key == "q":
+                    stop_event.set()
+                    break
+        else:
+            # Linux and macOS logic
+            # select.select([file], [outputs], [exceptions], timeout)
+            # We check if there is data available to read from stdin (fileno 0)
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                char = sys.stdin.read(1).lower()
+                if char == 'q':
                     stop_event.set()
                     break
 
