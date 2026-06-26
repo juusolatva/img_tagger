@@ -212,7 +212,8 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
         ],
     )
     content = response.choices[0].message.content
-    logging.debug(f"Raw LM Studio response for {img_path}: {content}")
+    # Removed logging of 'content' to prevent massive log files due to base64 image data
+    logging.debug(f"Raw LM Studio response received for {img_path}")
     return content
 
 
