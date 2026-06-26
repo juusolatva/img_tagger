@@ -1,11 +1,11 @@
-:Eimport argparse
+import argparse
 import base64
 import os
 import platform
+import select
+import sys
 import threading
 import time
-import sys
-import select
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -43,7 +43,7 @@ def listen_for_quit(stop_event):
             # We check if there is data available to read from stdin (fileno 0)
             if select.select([sys.stdin], [], [], 0.1)[0]:
                 char = sys.stdin.read(1).lower()
-                if char == 'q':
+                if char == "q":
                     stop_event.set()
                     break
 
