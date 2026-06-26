@@ -503,27 +503,27 @@ if __name__ == "__main__":
         "--backend",
         choices=["ollama", "lm-studio"],
         default="ollama",
-        help="Local AI provider backend",
+        help="Local model provider backend (ollama by default)",
     )
     parser.add_argument(
-        "--host", help="Custom backend endpoint URL (Overrides defaults)"
+        "--host", help="Backend endpoint URL (localhost by default)"
     )
     parser.add_argument(
         "--model",
         default="qwen3-vl:8b",
-        help="Model identification tag (Mainly for Ollama)",
+        help="Model identification tag (defaults to qwen3-vl:8b)",
     )
     # New workers argument
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
-        help="Number of concurrent workers (Max 4 recommended)",
+        help="Number of concurrent workers (max 4, default 1)"
     )
     # Logging argument
     parser.add_argument(
         "--log",
-        help="Path to the log file (e.g., --log logs/run.log). If omitted, logging is disabled."
+        help="Enable logging and create log file (e.g., --log logs/run.log)"
     )
 
     args = parser.parse_args()
