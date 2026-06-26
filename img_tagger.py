@@ -520,31 +520,31 @@ if __name__ == "__main__":
         "-r",
         "--recursive",
         action="store_true",
-        help="Process subdirectories recursively",
+        help="process subdirectories recursively",
     )
     parser.add_argument(
         "--backend",
         choices=["ollama", "lm-studio"],
         default="ollama",
-        help="Local model provider backend (ollama by default)",
+        help="local model provider backend (ollama by default)",
     )
     parser.add_argument(
-        "--host", help="Backend endpoint URL (localhost by default)"
+        "--host", help="backend endpoint URL (localhost by default)"
     )
     parser.add_argument(
         "--model",
         default="qwen3-vl:8b",
-        help="Model identification tag (defaults to qwen3-vl:8b)",
+        help="model identification tag (defaults to qwen3-vl:8b)",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
-        help="Number of concurrent workers (max 4, default 1)"
+        help="number of concurrent workers (max 4, default 1)"
     )
     parser.add_argument(
         "--log",
-        help="Enable logging and create log file (e.g., --log logs/run.log)"
+        help="enable logging and create log file (e.g., --log logs/run.log)"
     )
 
     args = parser.parse_args()
