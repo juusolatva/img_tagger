@@ -518,7 +518,7 @@ def process_directory(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Image tagger using a visual-language model"
+        description="Image tagger using a vision-language model"
     )
     parser.add_argument("directory", help="Path to your image folder")
     parser.add_argument(
