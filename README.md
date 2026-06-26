@@ -19,9 +19,9 @@ Tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and
 Clone the repository and run *img_tagger.py* with Python.
 
 ### System prerequisites
-You must have either **Ollama** or **LM Studio** with a Vision-capable model for processing the images.
+You must have Python and either **Ollama** or **LM Studio** with a Vision-capable model for processing the images.
 
-### Installing Python dependencies
+### Installing dependencies
 *pip install -r requirements.txt*
 
 
