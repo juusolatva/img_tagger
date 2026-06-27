@@ -36,6 +36,8 @@ try:
 except ImportError:
     OpenAI = None
 
+metadata_lock = threading.Lock()
+
 
 def setup_logging(log_path: str | None) -> None:
     if log_path is None:
@@ -103,7 +105,7 @@ def is_valid_image(img_path: Path) -> bool:
         return False
 
 
-def _write_metadata_pyexiv2(image_path: str, tags_list: list[str]) -> None:
+def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """Writes tags using pyexiv2 for JPEG, WebP, and PNG with a temp file and auto-healing fallback."""
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
@@ -114,39 +116,42 @@ def _write_metadata_pyexiv2(image_path: str, tags_list: list[str]) -> None:
     try:
         shutil.copy2(image_path, temp_path)
         try:
-            # Primary attempt using pyexiv2 (separated into EXIF and XMP)
-            with pyexiv2.Image(temp_path) as img:
-                img.modify_exif({
-                    'Exif.Photo.UserComment': f"{tags_str} {marker}"
-                })
-                img.modify_xmp({
-                    'Xmp.dc.subject': tags_list,
-                    'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
-                })
-                
-        except RuntimeError as e:
-            # Auto-healing fallback for corrupted EXIF data (IFD buffer errors)
-            if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
-                logging.warning(f"Corrupted metadata in {Path(image_path).name}, sanitizing via Pillow...")
-                
-                # Open with Pillow (more forgiving) and save to temp_path to strip broken EXIF
-                with Image.open(image_path) as pil_img:
-                    pil_img.save(temp_path, format=pil_img.format)
-                
-                # Retry pyexiv2 on the newly cleaned temporary file
+            with metadata_lock:
+                # Primary attempt using pyexiv2 (separated into EXIF and XMP)
                 with pyexiv2.Image(temp_path) as img:
                     img.modify_exif({
+                        'Exif.Photo.UserComment': f"{tags_str} {marker}"
+                    })
+                    img.modify_xmp({
+                        'Xmp.dc.subject': tags_list,
+                        'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
+                    })
+                
+        except RuntimeError as e:
+            with metadata_lock:
+                # Auto-healing fallback for corrupted EXIF data (IFD buffer errors)
+                if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
+                    logging.warning(f"Corrupted metadata in {Path(image_path).name}, sanitizing via Pillow...")
+                
+                    # Open with Pillow (more forgiving) and save to temp_path to strip broken EXIF
+                    with Image.open(image_path) as pil_img:
+                        pil_img.save(temp_path, format=pil_img.format)
+                
+                    # Retry pyexiv2 on the newly cleaned temporary file
+                    with pyexiv2.Image(temp_path) as img:
+                        img.modify_exif({
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
                     })
                     img.modify_xmp({
                         'Xmp.dc.subject': tags_str,
                         'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
                     })
-            else:
-                raise e # Re-raise if it's a different pyexiv2 error
+                
+                else:
+                    raise e # Re-raise if it's a different pyexiv2 error
 
-        os.replace(temp_path, image_path)
-        logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
+            os.replace(temp_path, image_path)
+            logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
         
     except Exception as e:
         if os.path.exists(temp_path):
@@ -154,9 +159,7 @@ def _write_metadata_pyexiv2(image_path: str, tags_list: list[str]) -> None:
         raise e
 
     
-def _write_gif_tags(image_path: str, 
-                    tags_list: list[str]
-                    ) -> None:
+def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to GIF images using comments."""
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
@@ -187,16 +190,14 @@ def _write_gif_tags(image_path: str,
         raise e
 
 
-def tag_image(image_path: str, 
-              tags_list: list[str]
-              ) -> None:
+def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
     ext = Path(image_path).suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
-            _write_metadata_pyexiv2(image_path, tags_list)
+            write_metadata(image_path, tags_list)
         elif ext == "gif":
-            _write_gif_tags(image_path, tags_list)
+            write_gif_tags(image_path, tags_list)
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
     except Exception as e:
@@ -262,39 +263,40 @@ def is_already_processed(img_path: Path) -> bool:
 
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
-            with pyexiv2.Image(str(p)) as img:
-                # 1. Grab the full dictionaries (No arguments!)
-                try:
-                    exif_dict = img.read_exif()
-                    xmp_dict = img.read_xmp()
-                except Exception:
-                    exif_dict, xmp_dict = {}, {}
+            with metadata_lock:
+                with pyexiv2.Image(str(p)) as img:
+                    # 1. Grab the full dictionaries (No arguments!)
+                    try:
+                        exif_dict = img.read_exif()
+                        xmp_dict = img.read_xmp()
+                    except Exception:
+                        exif_dict, xmp_dict = {}, {}
 
-                keys_to_check = [
-                    "Exif.Photo.UserComment", 
-                    "Exif.UserComment", 
-                    "Xmp.dc.description",
-                    "Xmp.dc.subject"
-                ]
+                    keys_to_check = [
+                        "Exif.Photo.UserComment", 
+                        "Exif.UserComment", 
+                        "Xmp.dc.description",
+                        "Xmp.dc.subject"
+                    ]
                 
-                # 2. Check the specific keys
-                for key in keys_to_check:
-                    data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
-                    if data:
-                        val = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
-                        if marker in val:
+                    # 2. Check the specific keys
+                    for key in keys_to_check:
+                        data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
+                        if data:
+                            val = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
+                            if marker in val:
+                                return True
+
+                    # 3. Fallback: check all values in the dictionaries
+                    for val in list(exif_dict.values()) + list(xmp_dict.values()):
+                        if val and marker in (val.decode("utf-8", errors="ignore") if isinstance(val, bytes) else str(val)):
                             return True
 
-                # 3. Fallback: check all values in the dictionaries
-                for val in list(exif_dict.values()) + list(xmp_dict.values()):
-                    if val and marker in (val.decode("utf-8", errors="ignore") if isinstance(val, bytes) else str(val)):
-                        return True
-
-            # 4. Fallback to Pillow's info dictionary
-            with Image.open(p) as img:
-                for key, value in img.info.items():
-                    if isinstance(value, str) and marker in value:
-                        return True
+                # 4. Fallback to Pillow's info dictionary
+                with Image.open(p) as img:
+                    for key, value in img.info.items():
+                        if isinstance(value, str) and marker in value:
+                            return True
                         
         elif ext == "gif":
             with Image.open(p) as img:
