@@ -120,7 +120,7 @@ def _write_metadata_pyexiv2(image_path: str, tags_list: list[str]) -> None:
                     'Exif.Photo.UserComment': f"{tags_str} {marker}"
                 })
                 img.modify_xmp({
-                    'Xmp.dc.subject': tags_str,
+                    'Xmp.dc.subject': tags_list,
                     'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
                 })
                 
@@ -166,7 +166,7 @@ def _write_gif_tags(image_path: str,
         duration = img.info.get("duration", 100)
         loop = img.info.get("loop", 0)
     
-    comment = f"{tags_str} {marker}\x00"
+    comment = f"{tags_str} {marker}"
     fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
     os.close(fd)
 

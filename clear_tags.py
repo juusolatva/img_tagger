@@ -35,9 +35,7 @@ def clear_tags(image_path):
                         
                         # Apply the pyexiv2 wipe on the newly sanitized file just to be sure
                         with pyexiv2.Image(temp_path) as img:
-                            img.clear_exif()
-                            img.clear_xmp()
-                            img.clear_iptc()
+                            img.clear_all()
                             
                         os.replace(temp_path, image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
@@ -103,4 +101,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
