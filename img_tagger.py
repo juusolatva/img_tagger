@@ -224,11 +224,7 @@ def get_tags_ollama(client: Any,
     return content
 
 
-def get_tags_lm_studio(client: Any, 
-                       model: str, 
-                       img_path: Path, 
-                       prompt: str
-                       ) -> str:
+def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
     with open(img_path, "rb") as image_file:
