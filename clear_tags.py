@@ -32,12 +32,6 @@ def clear_tags(image_path):
                         with Image.open(image_path) as pil_img:
                             # Save via Pillow strips out broken EXIF chunks natively
                             pil_img.save(temp_path, format=pil_img.format)
-                        
-                        # Apply the pyexiv2 wipe on the newly sanitized file just to be sure
-                        with pyexiv2.Image(temp_path) as img:
-                            img.clear_exif()
-                            img.clear_xmp()
-                            img.clear_iptc()
                             
                         os.replace(temp_path, image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
