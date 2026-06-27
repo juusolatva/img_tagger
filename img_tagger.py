@@ -381,16 +381,23 @@ def process_directory(
     print(f"Initialized backend: {backend} | Target: {host}")
     print(f"Found {len(image_files)} images to process. Starting...\n")
 
-    # The prompt works well enough for me but feel free to modify it.
-    prompt = (
-        "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
-        "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
-        "1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo'). "
-        "2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text. "
-        "3. If it is a screenshot, summarize the main topic or software shown. "
-        "4. All tags must be strictly in English. Do not use any other languages or alphabets. "
-        "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
-    )
+    # Load prompt from file
+    prompt_file = Path(__file__).parent / "prompt.txt"
+    try:
+        with open(prompt_file, "r", encoding="utf-8") as f:
+            prompt = f.read().strip()
+    except Exception as e:
+        print(f"Warning: Could not read prompt.txt from {prompt_file}. Falling back to default.")
+        print(f"Error details: {e}")
+        prompt = (
+            "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
+            "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
+            "1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo'). "
+            "2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text. "
+            "3. If it is a screenshot, summarize the main topic or software shown. "
+            "4. All tags must be strictly in English. Do not use any other languages or alphabets. "
+            "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
+        )
 
     if backend == "ollama":
         if OllamaClient is None:
