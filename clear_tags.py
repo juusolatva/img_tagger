@@ -50,31 +50,32 @@ def clear_tags(image_path):
                 raise e
 
         elif ext == "gif":
-            # GIF logic remains unchanged
+            # 1. Open the file just long enough to extract the frames and metadata into memory
             with Image.open(image_path) as img:
                 frames = [f.copy() for f in ImageSequence.Iterator(img)]
                 duration = img.info.get("duration", 100)
                 loop = img.info.get("loop", 0)
 
-                fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
-                os.close(fd)
+            # 2. File handle is now closed! Safe to proceed on Windows.
+            fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+            os.close(fd)
 
-                try:
-                    frames[0].save(
-                        temp_path, 
-                        format="GIF", 
-                        save_all=True, 
-                        append_images=frames[1:], 
-                        duration=duration, 
-                        loop=loop, 
-                        comment=""
-                    )
-                    os.replace(temp_path, image_path)
-                    print(f"  Cleared GIF comment: {image_path.name}")
-                except Exception as e:
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-                    raise e
+            try:
+                frames[0].save(
+                    temp_path, 
+                    format="GIF", 
+                    save_all=True, 
+                    append_images=frames[1:], 
+                    duration=duration, 
+                    loop=loop, 
+                    comment=""
+                )
+                os.replace(temp_path, image_path)
+                print(f"  Cleared GIF comment: {image_path.name}")
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise e
 
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
