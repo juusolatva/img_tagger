@@ -9,7 +9,7 @@ import time
 import logging
 import shutil
 import tempfile
-import piexif
+import pyexiv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -103,102 +103,62 @@ def is_valid_image(img_path: Path) -> bool:
         return False
 
 
-def _get_exif_dict(image_path: str) -> dict:
-    """Helper to load or create an EXIF dictionary."""
+def _write_metadata_pyexiv2(image_path: str, tags_list: list[str]) -> None:
+    """Writes tags using pyexiv2 for JPEG, WebP, and PNG with a temp file and auto-healing fallback."""
+    marker = "[PROCESSED BY AI]"
+    tags_str = ", ".join(tags_list)
+    
+    fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+    os.close(fd)
+
     try:
-        return piexif.load(image_path)
-    except Exception:
-        return {
-            "0th": {},
-            "Exif": {},
-            "GPS": {},
-            "Interop": {},
-            "1st": {},
-            "thumbnail": None,
-        }
-
-
-def _write_exif_tags(image_path: str, 
-                     tags_list: list[str]
-                     ) -> None:
-    """Writes tags to JPEG/WEBP images using EXIF metadata."""
-    marker = "[PROCESSED_BY_AI]"
-    tags_str = ", ".join(tags_list)
-    exif_dict = _get_exif_dict(image_path)
-
-    user_comment = b"ASCII\x00\x00\x00" + (tags_str + " " + marker).encode(
-        "ascii", errors="ignore"
-    )
-    exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
-    win_tags_str = ";".join(tags_list) + "\x00"
-    exif_dict["0th"][piexif.ImageIFD.XPKeywords] = win_tags_str.encode("utf-16le")
-    exif_dict["0th"][piexif.ImageIFD.Software] = marker.encode("ascii")
-
-    ext = Path(image_path).suffix.lower()
-    exif_bytes = piexif.dump(exif_dict)
-
-    if ext in ["jpg", "jpeg"]:
-        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-        os.close(fd)
-
+        shutil.copy2(image_path, temp_path)
         try:
-            shutil.copy2(image_path, temp_path)
-            piexif.insert(exif_bytes, temp_path)
-            os.replace(temp_path, image_path)
-        except Exception as e:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise e
+            # Primary attempt using pyexiv2 (separated into EXIF and XMP)
+            with pyexiv2.Image(temp_path) as img:
+                img.modify_exif({
+                    'Exif.Photo.UserComment': f"{tags_str} {marker}"
+                })
+                img.modify_xmp({
+                    'Xmp.dc.subject': tags_str,
+                    'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
+                })
+                
+        except RuntimeError as e:
+            # Auto-healing fallback for corrupted EXIF data (IFD buffer errors)
+            if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
+                logging.warning(f"Corrupted metadata in {Path(image_path).name}, sanitizing via Pillow...")
+                
+                # Open with Pillow (more forgiving) and save to temp_path to strip broken EXIF
+                with Image.open(image_path) as pil_img:
+                    pil_img.save(temp_path, format=pil_img.format)
+                
+                # Retry pyexiv2 on the newly cleaned temporary file
+                with pyexiv2.Image(temp_path) as img:
+                    img.modify_exif({
+                        'Exif.Photo.UserComment': f"{tags_str} {marker}"
+                    })
+                    img.modify_xmp({
+                        'Xmp.dc.subject': tags_str,
+                        'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
+                    })
+            else:
+                raise e # Re-raise if it's a different pyexiv2 error
+
+        os.replace(temp_path, image_path)
+        logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
         
-    elif ext == "webp":
-        with Image.open(image_path) as img:
-            fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-            os.close(fd)
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise e
 
-            try:
-                img.save(temp_path, exif=exif_bytes, quality=95, method=6, format="WEBP")
-                os.replace(temp_path, image_path)
-            except Exception as e:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise e
-
-
-def _write_png_tags(image_path: str, 
-                    tags_list: list[str]
-                    ) -> None:
-    """Writes tags to PNG images using PngInfo."""
-    marker = "[PROCESSED_BY_AI]"
-    tags_str = ", ".join(tags_list)
-    with Image.open(image_path) as img:
-        img.load()
-        metadata = PngImagePlugin.PngInfo()
-        for k, v in img.info.items():
-            if isinstance(v, str) and isinstance(k, str) and k not in ["Keywords", "Description"]:
-                metadata.add_text(k, v)
-
-        metadata.add_text("Keywords", tags_str)
-        metadata.add_text("Description", f"Tags: {tags_str} | {marker}")
-        fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-        os.close(fd)
-
-        try:
-            save_kwargs = {"pnginfo": metadata, "optimize": True, "format": "PNG"}
-            if "icc_profile" in img.info:
-                save_kwargs["icc_profile"] = img.info["icc_profile"]
-            img.save(temp_path, **save_kwargs)
-            os.replace(temp_path, image_path)
-        except Exception as e:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise e
-
-
+    
 def _write_gif_tags(image_path: str, 
                     tags_list: list[str]
                     ) -> None:
     """Writes tags to GIF images using comments."""
-    marker = "[PROCESSED_BY_AI]"
+    marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
     with Image.open(image_path) as img:
         # Map out all frames and animation configuration settings to avoid flattening
@@ -231,14 +191,10 @@ def tag_image(image_path: str,
               tags_list: list[str]
               ) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
-    ext = Path(image_path).suffix.lower()
+    ext = Path(image_path).suffix.lower().lstrip(".")
     try:
-        if ext in ["jpg", "jpeg"]:
-            _write_exif_tags(image_path, tags_list)
-        elif ext == "webp":
-            _write_exif_tags(image_path, tags_list)
-        elif ext == "png":
-            _write_png_tags(image_path, tags_list)
+        if ext in ["jpg", "jpeg", "webp", "png"]:
+            _write_metadata_pyexiv2(image_path, tags_list)
         elif ext == "gif":
             _write_gif_tags(image_path, tags_list)
         else:
@@ -300,26 +256,51 @@ def get_tags_lm_studio(client: Any,
 
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
-    marker = "[PROCESSED_BY_AI]"
+    marker = "[PROCESSED BY AI]"
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
 
     try:
-        if ext in ["jpg", "jpeg", "webp"]:
-            if ext == "webp":
-                with Image.open(p) as img:
-                    exif_bytes = img.info.get("exif", b"")
-                exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
-            else:
-                exif_dict = piexif.load(str(p))
-            user_comment = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
-            return marker.encode("ascii") in user_comment
-        elif ext == "png":
+        if ext in ["jpg", "jpeg", "webp", "png"]:
+            with pyexiv2.Image(str(p)) as img:
+                # 1. Grab the full dictionaries (No arguments!)
+                try:
+                    exif_dict = img.read_exif()
+                    xmp_dict = img.read_xmp()
+                except Exception:
+                    exif_dict, xmp_dict = {}, {}
+
+                keys_to_check = [
+                    "Exif.Photo.UserComment", 
+                    "Exif.UserComment", 
+                    "Xmp.dc.description",
+                    "Xmp.dc.subject"
+                ]
+                
+                # 2. Check the specific keys
+                for key in keys_to_check:
+                    data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
+                    if data:
+                        val = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
+                        if marker in val:
+                            return True
+
+                # 3. Fallback: check all values in the dictionaries
+                for val in list(exif_dict.values()) + list(xmp_dict.values()):
+                    if val and marker in (val.decode("utf-8", errors="ignore") if isinstance(val, bytes) else str(val)):
+                        return True
+
+            # 4. Fallback to Pillow's info dictionary
             with Image.open(p) as img:
-                return marker in img.info.get("Description", "")
+                for key, value in img.info.items():
+                    if isinstance(value, str) and marker in value:
+                        return True
+                        
         elif ext == "gif":
             with Image.open(p) as img:
-                return marker in img.info.get("comment", "")
+                comment = img.info.get("comment", "")
+                if comment and marker in str(comment):
+                    return True
     except Exception:
         pass
     return False

@@ -3,13 +3,12 @@ import os
 import tempfile
 import shutil
 import pyexiv2
-import piexif
 from pathlib import Path
 from PIL import Image, ImageSequence
 
 
 def clear_tags(image_path):
-    """Removes added tags and markers without breaking animations or metadata profiles."""
+    """Removes all metadata (EXIF, XMP, IPTC) and GIF comments to reset images."""
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
@@ -18,52 +17,40 @@ def clear_tags(image_path):
             try:
                 shutil.copy2(image_path, temp_path)
                 try:
-                    # Primary attempt using pyexiv2
+                    # Primary attempt using pyexiv2 to wipe EVERYTHING
                     with pyexiv2.Image(temp_path) as img:
-                        img.modify_meta({
-                            'Exif.Photo.UserComment': "",
-                            'Exif.Image.XPKeywords': "",
-                            'Xmp.dc.subject': "",
-                            'Xmp.dc.description': ""
-                        })
+                        img.clear_exif()
+                        img.clear_xmp()
+                        img.clear_iptc()
+                        
                     os.replace(temp_path, image_path)
                     print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
                     
                 except RuntimeError as e:
                     if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
-                        # The image is ALREADY corrupted (likely from the old script).
-                        # Let's use Pillow to strip the broken EXIF data entirely.
+                        # The image is corrupted. Sanitize with Pillow to strip broken headers.
                         with Image.open(image_path) as pil_img:
+                            # Save via Pillow strips out broken EXIF chunks natively
                             pil_img.save(temp_path, format=pil_img.format)
+                        
+                        # Apply the pyexiv2 wipe on the newly sanitized file just to be sure
+                        with pyexiv2.Image(temp_path) as img:
+                            img.clear_exif()
+                            img.clear_xmp()
+                            img.clear_iptc()
+                            
                         os.replace(temp_path, image_path)
-                        print(f"  Sanitized corrupted EXIF (Pillow) for: {image_path.name}")
+                        print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
                     else:
                         raise e
                         
-                except Exception as pyexiv2_err:
-                    # Fallback to piexif for other errors
-                    try:
-                        exif_dict = piexif.load(str(image_path))
-                        
-                        # SAFELY DELETE the keys instead of setting them to b""
-                        if "Exif" in exif_dict:
-                            exif_dict["Exif"].pop(piexif.ExifIFD.UserComment, None)
-                        if "0th" in exif_dict:
-                            exif_dict["0th"].pop(piexif.ImageIFD.XPKeywords, None)
-                            exif_dict["0th"].pop(piexif.ImageIFD.Software, None)
-
-                        exif_bytes = piexif.dump(exif_dict)
-                        piexif.insert(exif_bytes, temp_path)
-                        os.replace(temp_path, image_path)
-                        print(f"  Cleared metadata (piexif fallback) for: {image_path.name}")
-                    except Exception as fallback_err:
-                        raise pyexiv2_err
             except Exception as e:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
                 raise e
 
         elif ext == "gif":
+            # GIF logic remains unchanged
             with Image.open(image_path) as img:
                 frames = [f.copy() for f in ImageSequence.Iterator(img)]
                 duration = img.info.get("duration", 100)
@@ -92,6 +79,7 @@ def clear_tags(image_path):
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Reset image tags for testing.")
     parser.add_argument("directory", help="Path to image folder")
@@ -115,3 +103,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
