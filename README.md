@@ -5,9 +5,9 @@ A python script that tags all the **JPEG**, **WebP**, **PNG** and **GIF** files 
 ## Features
 
 - **Tags** are:
-  - stored into EXIF (`UserComment`, `XPKeywords`, and `Software` fields) for **JPEGs / WebPs**
-  - stored as native `Keywords` and `Description` text chunks for **PNGs**
-  - embedded directly inside the image comment block for **GIFs**
+- stored into EXIF (`UserComment`, `XPKeywords`, and `Software` fields) for **JPEGs / WebPs**
+- stored as native `Keywords` and `Description` text chunks for **PNGs**
+- embedded directly inside the image comment block for **GIFs**
 - Skips already processed files that have the marker: ***[PROCESSED BY AI]***
 - Runs **1 to 4** workers concurrently
 - Collects simple performance metrics

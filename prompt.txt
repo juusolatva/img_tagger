@@ -3,5 +3,5 @@ Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list 
 1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo').
 2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text.
 3. If it is a screenshot, summarize the main topic or software shown.
-4. All tags must be strictly in English. Do not use any other languages or alphabets. 
+4. All tags must be strictly in English. Do not use any other languages or alphabets.
 Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes.

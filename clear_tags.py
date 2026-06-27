@@ -22,22 +22,22 @@ def clear_tags(image_path):
                         img.clear_exif()
                         img.clear_xmp()
                         img.clear_iptc()
-                        
+
                     os.replace(temp_path, image_path)
                     print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
-                    
+
                 except RuntimeError as e:
                     if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
                         # The image is corrupted. Sanitize with Pillow to strip broken headers.
                         with Image.open(image_path) as pil_img:
                             # Save via Pillow strips out broken EXIF chunks natively
                             pil_img.save(temp_path, format=pil_img.format)
-                            
+
                         os.replace(temp_path, image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
                     else:
                         raise e
-                        
+
             except Exception as e:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
@@ -56,12 +56,12 @@ def clear_tags(image_path):
 
             try:
                 frames[0].save(
-                    temp_path, 
-                    format="GIF", 
-                    save_all=True, 
-                    append_images=frames[1:], 
-                    duration=duration, 
-                    loop=loop, 
+                    temp_path,
+                    format="GIF",
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=duration,
+                    loop=loop,
                     comment=""
                 )
                 os.replace(temp_path, image_path)

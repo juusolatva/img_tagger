@@ -42,11 +42,11 @@ metadata_lock = threading.Lock()
 def setup_logging(log_path: str | None) -> None:
     if log_path is None:
         return
-    
+
     path_obj = Path(log_path)
     # Create parent directory if it doesn't exist
     path_obj.parent.mkdir(parents=True, exist_ok=True)
-    
+
     logging.basicConfig(
         filename=str(path_obj),
         level=logging.DEBUG,
@@ -109,7 +109,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """Writes tags using pyexiv2 for JPEG, WebP, and PNG with a temp file and auto-healing fallback."""
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
-    
+
     fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
     os.close(fd)
 
@@ -126,17 +126,17 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                         'Xmp.dc.subject': tags_list,
                         'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
                     })
-                
+
         except RuntimeError as e:
             with metadata_lock:
                 # Auto-healing fallback for corrupted EXIF data (IFD buffer errors)
                 if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
                     logging.warning(f"Corrupted metadata in {Path(image_path).name}, sanitizing via Pillow...")
-                
+
                     # Open with Pillow (more forgiving) and save to temp_path to strip broken EXIF
                     with Image.open(image_path) as pil_img:
                         pil_img.save(temp_path, format=pil_img.format)
-                
+
                     # Retry pyexiv2 on the newly cleaned temporary file
                     with pyexiv2.Image(temp_path) as img:
                         img.modify_exif({
@@ -146,19 +146,19 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                         'Xmp.dc.subject': tags_str,
                         'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
                     })
-                
+
                 else:
                     raise e # Re-raise if it's a different pyexiv2 error
 
             os.replace(temp_path, image_path)
             logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
-        
+
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
         raise e
 
-    
+
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to GIF images using comments."""
     marker = "[PROCESSED BY AI]"
@@ -168,7 +168,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
         frames = [f.copy() for f in ImageSequence.Iterator(img)]
         duration = img.info.get("duration", 100)
         loop = img.info.get("loop", 0)
-    
+
     comment = f"{tags_str} {marker}"
     fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
     os.close(fd)
@@ -204,9 +204,9 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
         raise RuntimeError(f"Tagging failed for {image_path}: {e}")
 
 
-def get_tags_ollama(client: Any, 
-                    model: str, 
-                    img_path: Path, 
+def get_tags_ollama(client: Any,
+                    model: str,
+                    img_path: Path,
                     prompt: str
                     ) -> str:
     """Sends image payload to an Ollama server."""
@@ -269,12 +269,12 @@ def is_already_processed(img_path: Path) -> bool:
                         exif_dict, xmp_dict = {}, {}
 
                     keys_to_check = [
-                        "Exif.Photo.UserComment", 
-                        "Exif.UserComment", 
+                        "Exif.Photo.UserComment",
+                        "Exif.UserComment",
                         "Xmp.dc.description",
                         "Xmp.dc.subject"
                     ]
-                
+
                     # 2. Check the specific keys
                     for key in keys_to_check:
                         data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
@@ -293,7 +293,7 @@ def is_already_processed(img_path: Path) -> bool:
                     for key, value in img.info.items():
                         if isinstance(value, str) and marker in value:
                             return True
-                        
+
         elif ext == "gif":
             with Image.open(p) as img:
                 comment = img.info.get("comment", "")
@@ -305,11 +305,11 @@ def is_already_processed(img_path: Path) -> bool:
 
 
 def process_single_image(
-    img_path: Path, 
-    client: Any, 
-    backend: str, 
-    model: str, 
-    prompt: str, 
+    img_path: Path,
+    client: Any,
+    backend: str,
+    model: str,
+    prompt: str,
     stop_event: threading.Event
     ) -> tuple[str, str, str, float]:
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
@@ -360,11 +360,11 @@ def process_single_image(
 
 
 def process_directory(
-    directory: str, 
-    recursive: bool, 
-    backend: str, 
-    host: str, 
-    model: str, 
+    directory: str,
+    recursive: bool,
+    backend: str,
+    host: str,
+    model: str,
     max_workers: int
     ) -> None:
     base_path = Path(directory)
