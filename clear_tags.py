@@ -38,7 +38,6 @@ def clear_tags(image_path):
                             img.clear_exif()
                             img.clear_xmp()
                             img.clear_iptc()
-                            img.clear_all()
                             
                         os.replace(temp_path, image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
