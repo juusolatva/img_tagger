@@ -36,7 +36,18 @@ try:
 except ImportError:
     OpenAI = None
 
+
 metadata_lock = threading.Lock()
+
+DEFAULT_PROMPT = (
+                "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
+                "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
+                "1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo'). "
+                "2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text. "
+                "3. If it is a screenshot, summarize the main topic or software shown. "
+                "4. All tags must be strictly in English. Do not use any other languages or alphabets. "
+                "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
+                )
 
 
 def setup_logging(log_path: str | None) -> None:
@@ -418,21 +429,16 @@ def process_directory(
 
     # Load prompt from file
     prompt_file = Path(__file__).parent / "prompt.txt"
-    try:
-        with open(prompt_file, "r", encoding="utf-8") as f:
-            prompt = f.read().strip()
-    except Exception as e:
+    if not prompt_file.exists():
+        logging.warning(f"prompt.txt not found at {prompt_file}; using default")
         print(f"Warning: Could not read prompt.txt from {prompt_file}. Falling back to default.")
-        print(f"Error details: {e}")
-        prompt = (
-            "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
-            "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
-            "1. Always include the image type as the first tag (e.g., 'Meme', 'Screenshot', 'Artwork', 'Photo'). "
-            "2. If it is a meme, identify the meme template/format, the main subjects, the core vibe/emotion, and 1-3 key words from the text. "
-            "3. If it is a screenshot, summarize the main topic or software shown. "
-            "4. All tags must be strictly in English. Do not use any other languages or alphabets. "
-            "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
-        )
+        prompt = DEFAULT_PROMPT
+    else:
+        try:
+            prompt = prompt_file.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logging.error(f"Failed to read prompt.txt: {e}")
+            sys.exit(1)
 
     if backend == "ollama":
         if OllamaClient is None:
