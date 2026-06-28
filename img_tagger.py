@@ -578,11 +578,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Max 4 workers as it's the default limit for both ollama and LM Studio.
-    if args.workers > 4:
-        print("Warning: Max workers set higher than 4.")
-        args.workers = 4
-    elif args.workers < 1:
-        print("Error: Worker count must be at least 1.")
+    if not 1 <= args.workers <= 4:
+        print(f"Error: Workers must be between 1 and 4, got {args.workers}")
         sys.exit(1)
 
     if not args.host:
