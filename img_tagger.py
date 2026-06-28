@@ -96,11 +96,15 @@ def listen_for_quit(stop_event: threading.Event) -> None:
 
 
 def is_valid_image(img_path: Path) -> bool:
-    """Checks if the file is a valid image type that Pillow can process."""
+    """Checks if the file is a valid image that Pillow can process."""
+    valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    if img_path.suffix.lower() not in valid_extensions:
+        return False
+
     try:
         with Image.open(img_path) as img:
-            # Pillow verifies the file is a valid image by its header
-            return img.format in ["JPEG", "PNG", "WEBP", "GIF"]
+            img.load()  # Force load to catch corruption
+            return True
     except Exception:
         return False
 
