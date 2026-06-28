@@ -86,8 +86,10 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                 # Always restore original settings
                 getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
         except (ImportError, AttributeError, Exception):
+            logging.debug("Terminal input unavailable; Q detection disabled")
             # Fallback for systems where termios/tty are not available or if in a non-interactive shell
             while not stop_event.is_set():
+                time.sleep(0.5)
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     char = sys.stdin.read(1).lower()
                     if char == "q":
