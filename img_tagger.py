@@ -147,7 +147,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
                         })
                         img.modify_xmp({
-                        'Xmp.dc.subject': tags_str,
+                        'Xmp.dc.subject': tags_list,
                         'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
                         })
 
