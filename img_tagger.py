@@ -121,20 +121,19 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
 
     try:
         shutil.copy2(image_path, temp_path)
-        try:
-            with metadata_lock:
+        with metadata_lock:
+            try:
                 # Primary attempt using pyexiv2 (separated into EXIF and XMP)
                 with pyexiv2.Image(temp_path) as img:
                     img.modify_exif({
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
                     })
                     img.modify_xmp({
-                        'Xmp.dc.subject': tags_list,
-                        'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
-                    })
+                    'Xmp.dc.subject': tags_list,
+                    'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
+                })
 
-        except RuntimeError as e:
-            with metadata_lock:
+            except RuntimeError as e:
                 # Auto-healing fallback for corrupted EXIF data (IFD buffer errors)
                 if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
                     logging.warning(f"Corrupted metadata in {Path(image_path).name}, sanitizing via Pillow...")
