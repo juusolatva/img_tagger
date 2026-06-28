@@ -44,32 +44,63 @@ def clear_tags(image_path):
                 raise e
 
         elif ext == "gif":
-            # 1. Open the file just long enough to extract the frames and metadata into memory
-            with Image.open(image_path) as img:
-                frames = [f.copy() for f in ImageSequence.Iterator(img)]
-                duration = img.info.get("duration", 100)
-                loop = img.info.get("loop", 0)
+            # 1. Extract frames to temporary files to avoid memory issues with large GIFs
+            duration = 100
+            loop = 0
+            frame_paths = []
 
-            # 2. File handle is now closed! Safe to proceed on Windows.
-            fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
-            os.close(fd)
+            with tempfile.TemporaryDirectory(dir=image_path.parent) as tmp_dir:
+                with Image.open(image_path) as img:
+                    duration = img.info.get("duration", duration)
+                    loop = img.info.get("loop", loop)
+                    for i, frame in enumerate(ImageSequence.Iterator(img)):
+                        p = Path(tmp_dir) / f"frame_{i:04d}.png"
+                        frame.save(p, format="PNG")
+                        frame_paths.append(p)
 
-            try:
-                frames[0].save(
-                    temp_path,
-                    format="GIF",
-                    save_all=True,
-                    append_images=frames[1:],
-                    duration=duration,
-                    loop=loop,
-                    comment=""
-                )
-                os.replace(temp_path, image_path)
-                print(f"  Cleared GIF comment: {image_path.name}")
-            except Exception as e:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise e
+                # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
+                fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
+                os.close(fd)
+                temp_path = Path(temp_path_str)
+
+                try:
+                    def frame_generator():
+                        for p in frame_paths[1:]:
+                            f = Image.open(p)
+                            yield f
+                            f.close()
+
+                    first_frame = Image.open(frame_paths[0])
+                    first_frame.save(
+                        temp_path,
+                        format="GIF",
+                        save_all=True,
+                        append_images=frame_generator(),
+                        duration=duration,
+                        loop=loop,
+                        comment=""
+                    )
+                    first_frame.close()
+
+                    # Robustly replace the file using Path objects with retries for Windows handle release
+                    import time
+                    success = False
+                    for _ in range(10):  # Increased retries and sleep duration
+                        try:
+                            temp_path.replace(image_path)
+                            success = True
+                            break
+                        except OSError:
+                            time.sleep(0.5)
+
+                    if not success:
+                        raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+
+                    print(f"  Cleared GIF comment (memory-efficient): {image_path.name}")
+                except Exception as e:
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    raise e
 
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
