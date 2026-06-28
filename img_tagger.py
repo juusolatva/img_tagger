@@ -460,51 +460,59 @@ def process_directory(
     )
     quit_thread.start()
 
-    print(f"Starting concurrent processing (max_workers={max_workers}).")
-    print("Press 'q' at any time to stop and see the current report.\n")
+    try:
+        print(f"Starting concurrent processing (max_workers={max_workers}).")
+        print("Press 'q' at any time to stop and see the current report.\n")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_image = {
-            executor.submit(
-                process_single_image,
-                img_path,
-                client,
-                backend,
-                model,
-                prompt,
-                stop_event,
-            ): img_path
-            for img_path in image_files
-        }
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_image = {
+                executor.submit(
+                    process_single_image,
+                    img_path,
+                    client,
+                    backend,
+                    model,
+                    prompt,
+                    stop_event,
+                ): img_path
+                for img_path in image_files
+            }
 
-        stopped_notified = False
-        for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
-            if stop_event.is_set() and not stopped_notified:
-                tqdm.write(
-                    "  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
-                )
-                stopped_notified = True
+            stopped_notified = False
+            for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
+                if stop_event.is_set() and not stopped_notified:
+                    tqdm.write(
+                        "  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
+                    )
+                    stopped_notified = True
 
-            try:
-                status, name, message, duration = future.result()
-                if status == "SUCCESS":
-                    tqdm.write(f"  [✓] {name} -> {message}")
-                    success_count += 1
-                    total_success_duration += duration
-                elif status == "SKIPPED":
-                    tqdm.write(f"  [-] {name} -> {message}")
-                    skip_count += 1
-                elif status == "CANCELLED":
-                    # Do nothing for cancelled tasks to keep the console clean
-                    pass
-                else:  # FAILED
-                    tqdm.write(f"  [!] {name} -> {message}")
+                try:
+                    status, name, message, duration = future.result()
+                    if status == "SUCCESS":
+                        tqdm.write(f"  [✓] {name} -> {message}")
+                        success_count += 1
+                        total_success_duration += duration
+                    elif status == "SKIPPED":
+                        tqdm.write(f"  [-] {name} -> {message}")
+                        skip_count += 1
+                    elif status == "CANCELLED":
+                        # Do nothing for cancelled tasks to keep the console clean
+                        pass
+                    else:  # FAILED
+                        tqdm.write(f"  [!] {name} -> {message}")
+                        fail_count += 1
+                        failed_log.append((name, message))
+                except Exception as e:
+                    img_path = future_to_image[future]
+                    tqdm.write(f"  [!] {img_path} -> Unexpected Error: {e}")
                     fail_count += 1
-                    failed_log.append((name, message))
-            except Exception as e:
-                img_path = future_to_image[future]
-                tqdm.write(f"  [!] {img_path} -> Unexpected Error: {e}")
-                fail_count += 1
+
+    except Exception as e:
+        print(f"An unexpected error occurred during processing: {e}")
+        raise
+    finally:
+        if quit_thread.is_alive():
+            quit_thread.join(timeout=2)
 
     # Calculate metrics
     end_time = time.time()
