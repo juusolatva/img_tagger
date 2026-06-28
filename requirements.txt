@@ -1,5 +1,5 @@
 ollama
 openai
 pillow
-tqdm
 pyexiv2
+tqdm
