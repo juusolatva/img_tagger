@@ -4,10 +4,7 @@ A python script that tags all the **JPEG**, **WebP**, **PNG** and **GIF** files 
 
 ## Features
 
-- **Tags** are:
-- stored into EXIF (`UserComment`, `XPKeywords`, and `Software` fields) for **JPEGs / WebPs**
-- stored as native `Keywords` and `Description` text chunks for **PNGs**
-- embedded directly inside the image comment block for **GIFs**
+- Creates tags for **JPEGs**, **WebPs**, **PNGs** and **GIFs**
 - Skips already processed files that have the marker: ***[PROCESSED BY AI]***
 - Runs **1 to 4** workers concurrently
 - Collects simple performance metrics
@@ -42,4 +39,3 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 ### Known issues
 - Animated **WebPs** are not properly supported
 - May have issues with some **PNGs** or **GIFs**
-- Large animated **GIFs** are not recommended
