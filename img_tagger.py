@@ -141,11 +141,11 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                     with pyexiv2.Image(temp_path) as img:
                         img.modify_exif({
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
-                    })
-                    img.modify_xmp({
+                        })
+                        img.modify_xmp({
                         'Xmp.dc.subject': tags_str,
                         'Xmp.dc.description': f"Tags: {tags_str} | {marker}"
-                    })
+                        })
 
                 else:
                     raise e # Re-raise if it's a different pyexiv2 error
@@ -153,41 +153,71 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
             os.replace(temp_path, image_path)
             logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
 
-    except Exception as e:
+    finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-        raise e
 
 
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
-    """Writes tags to GIF images using comments."""
+    """Writes tags to GIF images using comments, handling large GIFs memory-efficiently."""
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
-    with Image.open(image_path) as img:
-        # Map out all frames and animation configuration settings to avoid flattening
-        frames = [f.copy() for f in ImageSequence.Iterator(img)]
-        duration = img.info.get("duration", 100)
-        loop = img.info.get("loop", 0)
 
-    comment = f"{tags_str} {marker}"
-    fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-    os.close(fd)
+    # 1. Extract frames to temporary files to avoid memory issues with large GIFs
+    duration = 100
+    loop = 0
+    frame_paths = []
 
-    try:
-        frames[0].save(
-            temp_path,
-            save_all=True,
-            append_images=frames[1:],
-            comment=comment,
-            duration=duration,
-            loop=loop,
-            format="GIF"
-        )
-        os.replace(temp_path, image_path)
-    except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise e
+    with tempfile.TemporaryDirectory(dir=Path(image_path).parent) as tmp_dir:
+        with Image.open(image_path) as img:
+            duration = img.info.get("duration", duration)
+            loop = img.info.get("loop", loop)
+            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                p = Path(tmp_dir) / f"frame_{i:04d}.png"
+                frame.save(p, format="PNG")
+                frame_paths.append(p)
+
+        # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
+        fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
+        os.close(fd)
+        temp_path = Path(temp_path_str)
+
+        try:
+            def frame_generator():
+                for p in frame_paths[1:]:
+                    f = Image.open(p)
+                    yield f
+                    f.close()
+
+            first_frame = Image.open(frame_paths[0])
+            first_frame.save(
+                temp_path,
+                format="GIF",
+                save_all=True,
+                append_images=frame_generator(),
+                duration=duration,
+                loop=loop,
+                comment=f"{tags_str} {marker}"
+            )
+            first_frame.close()
+
+            # Robustly replace the file using Path objects with retries for Windows handle release
+            import time
+            success = False
+            for _ in range(10):  # Increased retries and sleep duration
+                try:
+                    temp_path.replace(image_path)
+                    success = True
+                    break
+                except OSError:
+                    time.sleep(0.5)
+
+            if not success:
+                raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
 
 def tag_image(image_path: str, tags_list: list[str]) -> None:
