@@ -30,8 +30,8 @@ def clear_tags(image_path):
                     if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
                         # The image is corrupted. Sanitize with Pillow to strip broken headers.
                         with Image.open(image_path) as pil_img:
-                            # Save via Pillow strips out broken EXIF chunks natively
-                            pil_img.save(temp_path, format=pil_img.format)
+                            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
+                            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"))
 
                         os.replace(temp_path, image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
