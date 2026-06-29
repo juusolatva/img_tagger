@@ -49,6 +49,10 @@ DEFAULT_PROMPT = (
                 )
 
 def setup_logging(log_path: str | None) -> None:
+    """
+    Configures the logging system to write to a specified file.
+    If no path is provided, logging remains at default settings.
+    """
     if log_path is None:
         return
 
@@ -64,7 +68,13 @@ def setup_logging(log_path: str | None) -> None:
     )
 
 def listen_for_quit(stop_event: threading.Event) -> None:
-    """Background thread to watch for 'q' keypress on Windows and Linux."""
+    """
+    A daemon thread that monitors standard input for a 'q' keypress to trigger
+    a graceful shutdown across different operating systems.
+
+    Args:
+        stop_event: A threading.Event object that will be set when 'q' is detected.
+    """
     if platform.system() == "Windows" and msvcrt is not None:
         while not stop_event.is_set():
             if msvcrt.kbhit():
@@ -105,7 +115,15 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                         break
 
 def get_image_format(img_path: Path) -> Optional[str]:
-    """Returns the PIL format of an image, or None if it's invalid."""
+    """
+    Attempts to identify the image format using Pillow.
+
+    Args:
+        img_path: The path to the image file.
+
+    Returns:
+        The PIL format string (e.g., 'JPEG', 'PNG') or None if the file is not a valid image.
+    """
     try:
         with Image.open(img_path) as img:
             img.verify()
@@ -116,11 +134,29 @@ def get_image_format(img_path: Path) -> Optional[str]:
         return None
 
 def is_valid_image(img_path: Path) -> bool:
-    """Checks if the file is a valid image that Pillow can process."""
+    """
+    Verifies if the provided path points to a valid image file.
+
+    Args:
+        img_path: The filesystem path to the image.
+
+    Returns:
+        True if the file can be opened and verified as an image, False otherwise.
+    """
     return get_image_format(img_path) is not None
 
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
-    """Writes tags using pyexiv2 for JPEG, WebP, and PNG with a temp file and auto-healing fallback."""
+    """
+    Writes tags to image metadata (JPEG, WebP, PNG) using pyexiv2.
+
+    This function uses a temporary file for safe writing and includes an
+    auto-healing fallback that sanitizes corrupted EXIF data using Pillow
+    before retrying the write operation.
+
+    Args:
+        image_path: The path to the target image file.
+        tags_list: A list of strings representing the tags to embed.
+    """
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
@@ -280,7 +316,16 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
 
 
 def tag_image(image_path: str, tags_list: list[str]) -> None:
-    """Embeds tags into the image metadata across Windows and Linux platforms."""
+    """
+    Embeds a list of tags into an image's metadata.
+
+    This function identifies the file format and routes to the appropriate
+    writer (pyexiv2 for standard images, or custom logic for GIFs).
+
+    Args:
+        image_path: The filesystem path to the image file.
+        tags_list: A list of strings representing the tags to embed.
+    """
     img_path = Path(image_path)
     fmt = get_image_format(img_path)
     if fmt is None:
@@ -301,7 +346,18 @@ def get_tags_ollama(client: Any,
                     img_path: Path,
                     prompt: str
                     ) -> str:
-    """Sends image payload to an Ollama server."""
+    """
+    Sends an image and prompt to an Ollama server for tag generation.
+
+    Args:
+        client: The Ollama client instance.
+        model: The identifier for the model to use (e.g., 'qwen3-vl:8b').
+        img_path: The path to the image file.
+        prompt: The prompt instructions for generating tags.
+
+    Returns:
+        A string containing the generated tags from the model response.
+    """
     logging.debug(f"Requesting tags from Ollama ({model}) for {img_path}")
     response = client.chat(
         model=model,
@@ -316,7 +372,18 @@ def get_tags_ollama(client: Any,
     return content
 
 def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
-    """Encodes image to base64 and sends payload to an LM Studio server."""
+    """
+    Encodes the image to base64 and sends a request to an LM Studio server.
+
+    Args:
+        client: The OpenAI-compatible client instance (e.g., LM Studio).
+        model: The model identifier to use.
+        img_path: The path to the image file.
+        prompt: The text prompt for generating tags.
+
+    Returns:
+        A string containing the generated tags from the response content.
+    """
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
     fmt = get_image_format(img_path)
     if fmt is None:
@@ -470,6 +537,22 @@ def process_directory(
     model: str,
     max_workers: int
     ) -> None:
+    """
+    Orchestrates the image tagging process for a directory or its subdirectories.
+
+    This function handles prompt loading, backend initialization (Ollama or LM Studio),
+    concurrent task distribution via ThreadPoolExecutor, and provides a real-time progress
+    bar and final summary report.
+
+    Args:
+        directory: The root directory to scan for images.
+        recursive: Whether to include subdirectories in the search.
+        backend: The model provider backend ('ollama' or 'lm-studio').
+        host: The endpoint URL for the chosen backend.
+        model: The specific model name/ID to use.
+        max_workers: The maximum number of concurrent threads (limited to 4).
+    """
+    base_path = Path(directory)
     base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
     # We keep a broad filter for performance, but the final check is done in process_single_image via get_image_format
