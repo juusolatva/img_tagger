@@ -48,11 +48,13 @@ DEFAULT_PROMPT = (
                 "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
                 )
 
+
 def setup_logging(log_path: str | None) -> None:
     """
     Configures the logging system to write to a specified file.
     If no path is provided, logging remains at default settings.
     """
+
     if log_path is None:
         return
 
@@ -67,6 +69,7 @@ def setup_logging(log_path: str | None) -> None:
         filemode='a'
     )
 
+
 def listen_for_quit(stop_event: threading.Event) -> None:
     """
     A daemon thread that monitors standard input for a 'q' keypress to trigger
@@ -75,6 +78,7 @@ def listen_for_quit(stop_event: threading.Event) -> None:
     Args:
         stop_event: A threading.Event object that will be set when 'q' is detected.
     """
+
     if platform.system() == "Windows" and msvcrt is not None:
         while not stop_event.is_set():
             if msvcrt.kbhit():
@@ -114,6 +118,7 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                         stop_event.set()
                         break
 
+
 def get_image_format(img_path: Path) -> Optional[str]:
     """
     Attempts to identify the image format using Pillow.
@@ -124,6 +129,7 @@ def get_image_format(img_path: Path) -> Optional[str]:
     Returns:
         The PIL format string (e.g., 'JPEG', 'PNG') or None if the file is not a valid image.
     """
+
     try:
         with Image.open(img_path) as img:
             img.verify()
@@ -132,6 +138,7 @@ def get_image_format(img_path: Path) -> Optional[str]:
             return img.format
     except Exception:
         return None
+
 
 def is_valid_image(img_path: Path) -> bool:
     """
@@ -143,7 +150,9 @@ def is_valid_image(img_path: Path) -> bool:
     Returns:
         True if the file can be opened and verified as an image, False otherwise.
     """
+
     return get_image_format(img_path) is not None
+
 
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """
@@ -157,6 +166,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
         image_path: The path to the target image file.
         tags_list: A list of strings representing the tags to embed.
     """
+
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
@@ -206,6 +216,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """
     Writes tags to GIF images using comments, handling large GIFs memory-efficiently.
@@ -213,6 +224,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     color quality, but variable frame durations are not supported (they default to a
     uniform duration).
     """
+
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
@@ -326,6 +338,7 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
         image_path: The filesystem path to the image file.
         tags_list: A list of strings representing the tags to embed.
     """
+
     img_path = Path(image_path)
     fmt = get_image_format(img_path)
     if fmt is None:
@@ -340,6 +353,7 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
             raise ValueError(f"Unsupported file format: {fmt}")
     except Exception as e:
         raise RuntimeError(f"Tagging failed for {image_path}: {e}")
+
 
 def get_tags_ollama(client: Any,
                     model: str,
@@ -358,6 +372,7 @@ def get_tags_ollama(client: Any,
     Returns:
         A string containing the generated tags from the model response.
     """
+
     logging.debug(f"Requesting tags from Ollama ({model}) for {img_path}")
     response = client.chat(
         model=model,
@@ -370,6 +385,7 @@ def get_tags_ollama(client: Any,
     )
     logging.debug(f"Raw Ollama response for {img_path}: {content}")
     return content
+
 
 def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """
@@ -384,6 +400,7 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
     Returns:
         A string containing the generated tags from the response content.
     """
+
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
     fmt = get_image_format(img_path)
     if fmt is None:
@@ -423,8 +440,10 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
     logging.debug(f"Raw LM Studio response received for {img_path}")
     return content
 
+
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
+
     marker = "[PROCESSED BY AI]"
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
@@ -475,6 +494,7 @@ def is_already_processed(img_path: Path) -> bool:
         pass
     return False
 
+
 def process_single_image(
     img_path: Path,
     client: Any,
@@ -484,6 +504,7 @@ def process_single_image(
     stop_event: threading.Event
     ) -> tuple[str, str, str, float]:
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
+
     logging.info(f"Processing {img_path.name}")
     if not is_valid_image(img_path):
         logging.warning(f"Skipping invalid/unsupported file: {img_path.name}")
@@ -529,6 +550,7 @@ def process_single_image(
         logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
         return "FAILED", img_path.name, str(e), time.time() - start
 
+
 def process_directory(
     directory: str,
     recursive: bool,
@@ -552,6 +574,7 @@ def process_directory(
         model: The specific model name/ID to use.
         max_workers: The maximum number of concurrent threads (limited to 4).
     """
+
     base_path = Path(directory)
     base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
@@ -686,6 +709,7 @@ def process_directory(
             print(f" * {filename} -> {error_msg}")
 
     print("=" * 50)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
