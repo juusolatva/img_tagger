@@ -171,7 +171,12 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
             os.remove(temp_path)
 
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
-    """Writes tags to GIF images using comments, handling large GIFs memory-efficiently."""
+    """
+    Writes tags to GIF images using comments, handling large GIFs memory-efficiently.
+    Note: For files larger than 64MB, frames are temporarily saved as PNGs to maintain
+    color quality, but variable frame durations are not supported (they default to a
+    uniform duration).
+    """
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
@@ -217,6 +222,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             if temp_path.exists():
                 temp_path.unlink()
     else:
+        logging.info(f"Large GIF detected ({os.path.getsize(image_path)} bytes). Using disk-based processing with uniform duration.")
         # Original disk-based approach for larger GIFs (> 64MB)
         duration = 100
         loop = 0
