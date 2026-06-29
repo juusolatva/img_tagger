@@ -255,14 +255,16 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             )
 
             # Robustly replace the file using Path objects with retries for Windows handle release
-            success = False
-            for _ in range(10):  # Increased retries and sleep duration
-                try:
-                    temp_path.replace(image_path)
-                    success = True
-                    break
-                except OSError:
-                    time.sleep(0.5)
+            success = True
+            if platform.system() == "Windows":
+                success = False
+                for _ in range(10):  # Increased retries and sleep duration
+                    try:
+                        temp_path.replace(image_path)
+                        success = True
+                        break
+                    except OSError:
+                        time.sleep(0.5)
 
             if not success:
                 raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
@@ -310,14 +312,16 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
                 first_frame.close()
 
                 # Robustly replace the file using Path objects with retries for Windows handle release
-                success = False
-                for _ in range(10):  # Increased retries and sleep duration
-                    try:
-                        temp_path.replace(image_path)
-                        success = True
-                        break
-                    except OSError:
-                        time.sleep(0.5)
+                success = True
+                if platform.system() == "Windows":
+                    success = False
+                    for _ in range(10):  # Increased retries and sleep duration
+                        try:
+                            temp_path.replace(image_path)
+                            success = True
+                            break
+                        except OSError:
+                            time.sleep(0.5)
 
                 if not success:
                     raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
