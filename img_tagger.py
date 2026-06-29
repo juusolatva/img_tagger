@@ -140,20 +140,6 @@ def get_image_format(img_path: Path) -> Optional[str]:
         return None
 
 
-def is_valid_image(img_path: Path) -> bool:
-    """
-    Verifies if the provided path points to a valid image file.
-
-    Args:
-        img_path: The filesystem path to the image.
-
-    Returns:
-        True if the file can be opened and verified as an image, False otherwise.
-    """
-
-    return get_image_format(img_path) is not None
-
-
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """
     Writes tags to image metadata (JPEG, WebP, PNG) using pyexiv2.
@@ -331,7 +317,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
                     temp_path.unlink()
 
 
-def tag_image(image_path: str, tags_list: list[str]) -> None:
+def tag_image(image_path: str, tags_list: list[str], fmt: Optional[str] = None) -> None:
     """
     Embeds a list of tags into an image's metadata.
 
@@ -341,10 +327,13 @@ def tag_image(image_path: str, tags_list: list[str]) -> None:
     Args:
         image_path: The filesystem path to the image file.
         tags_list: A list of strings representing the tags to embed.
+        fmt: The image format (e.g., 'JPEG'). If None, it will be determined from the file.
     """
 
     img_path = Path(image_path)
-    fmt = get_image_format(img_path)
+    if fmt is None:
+        fmt = get_image_format(img_path)
+
     if fmt is None:
         raise RuntimeError(f"Could not determine format for {image_path}")
 
@@ -510,7 +499,8 @@ def process_single_image(
     """Handles the full pipeline for a single image: validation -> AI -> tagging."""
 
     logging.info(f"Processing {img_path.name}")
-    if not is_valid_image(img_path):
+    fmt = get_image_format(img_path)
+    if fmt is None:
         logging.warning(f"Skipping invalid/unsupported file: {img_path.name}")
         return "FAILED", img_path.name, "Skipping unsupported or corrupted file", 0
 
@@ -533,7 +523,7 @@ def process_single_image(
         tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
 
         if tags:
-            tag_image(str(img_path), tags)
+            tag_image(str(img_path), tags, fmt=fmt)
             logging.info(f"Successfully tagged {img_path.name} with {tags}")
             return (
                 "SUCCESS",
