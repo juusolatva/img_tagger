@@ -19,6 +19,7 @@ def clear_tags(image_path):
         RuntimeError: If pyexiv2 encounters an error not related to corruption.
         OSError: If a file operation fails during processing.
     """
+
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
@@ -116,14 +117,7 @@ def clear_tags(image_path):
         print(f"  Failed to clear {image_path.name}: {e}")
 
 
-def main():
-    """
-    Parses command-line arguments and processes all images in the specified directory.
-
-    Arguments:
-        directory (str): The path to the folder containing images.
-        --recursive (-r): If set, searches for images in subdirectories as well.
-    """
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Reset image tags for testing.")
     parser.add_argument("directory", help="Path to image folder")
     parser.add_argument(
@@ -143,6 +137,3 @@ def main():
     for img_path in image_files:
         clear_tags(img_path)
     print("Done.")
-
-if __name__ == "__main__":
-    main()
