@@ -2,9 +2,27 @@ import argparse
 import os
 import tempfile
 import shutil
+import time
 import pyexiv2
 from pathlib import Path
 from PIL import Image, ImageSequence
+
+
+def robust_replace(src: Path, dst: Path):
+    """
+    Robustly replace the file using Path objects with retries for Windows handle release.
+    """
+    success = False
+    for _ in range(10):  # Increased retries and sleep duration
+        try:
+            src.replace(dst)
+            success = True
+            break
+        except OSError:
+            time.sleep(0.5)
+
+    if not success:
+        raise OSError(f"Failed to replace {src} with {dst} after retries.")
 
 
 def clear_tags(image_path):
@@ -94,18 +112,7 @@ def clear_tags(image_path):
                     first_frame.close()
 
                     # Robustly replace the file using Path objects with retries for Windows handle release
-                    import time
-                    success = False
-                    for _ in range(10):  # Increased retries and sleep duration
-                        try:
-                            temp_path.replace(image_path)
-                            success = True
-                            break
-                        except OSError:
-                            time.sleep(0.5)
-
-                    if not success:
-                        raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+                    robust_replace(temp_path, image_path)
 
                     print(f"  Cleared GIF comment (memory-efficient): {image_path.name}")
                 except Exception as e:
