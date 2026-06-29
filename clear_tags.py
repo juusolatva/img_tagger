@@ -8,7 +8,17 @@ from PIL import Image, ImageSequence
 
 
 def clear_tags(image_path):
-    """Removes all metadata (EXIF, XMP, IPTC) and GIF comments to reset images."""
+    """
+    Removes all metadata (EXIF, XMP, IPTC) from standard images and clears
+    comments from GIFs to reset images for testing purposes.
+
+    Args:
+        image_path (Path): The path object of the image file to be processed.
+
+    Raises:
+        RuntimeError: If pyexiv2 encounters an error not related to corruption.
+        OSError: If a file operation fails during processing.
+    """
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
@@ -107,6 +117,13 @@ def clear_tags(image_path):
 
 
 def main():
+    """
+    Parses command-line arguments and processes all images in the specified directory.
+
+    Arguments:
+        directory (str): The path to the folder containing images.
+        --recursive (-r): If set, searches for images in subdirectories as well.
+    """
     parser = argparse.ArgumentParser(description="Reset image tags for testing.")
     parser.add_argument("directory", help="Path to image folder")
     parser.add_argument(
