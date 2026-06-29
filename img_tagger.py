@@ -13,7 +13,7 @@ import pyexiv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from PIL import Image, ImageSequence, PngImagePlugin
 
 try:
@@ -36,7 +36,6 @@ try:
 except ImportError:
     OpenAI = None
 
-
 metadata_lock = threading.Lock()
 
 DEFAULT_PROMPT = (
@@ -48,7 +47,6 @@ DEFAULT_PROMPT = (
                 "4. All tags must be strictly in English. Do not use any other languages or alphabets. "
                 "Return ONLY the comma-separated list of tags. No introductory text, bullet points, or quotes."
                 )
-
 
 def setup_logging(log_path: str | None) -> None:
     if log_path is None:
@@ -64,7 +62,6 @@ def setup_logging(log_path: str | None) -> None:
         format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
         filemode='a'
     )
-
 
 def listen_for_quit(stop_event: threading.Event) -> None:
     """Background thread to watch for 'q' keypress on Windows and Linux."""
@@ -107,20 +104,20 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                         stop_event.set()
                         break
 
+def get_image_format(img_path: Path) -> Optional[str]:
+    """Returns the PIL format of an image, or None if it's invalid."""
+    try:
+        with Image.open(img_path) as img:
+            img.verify()
+        # Re-open because verify() closes/clears the file handle in some versions
+        with Image.open(img_path) as img:
+            return img.format
+    except Exception:
+        return None
 
 def is_valid_image(img_path: Path) -> bool:
     """Checks if the file is a valid image that Pillow can process."""
-    valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    if img_path.suffix.lower() not in valid_extensions:
-        return False
-
-    try:
-        with Image.open(img_path) as img:
-            img.load()  # Force load to catch corruption
-            return True
-    except Exception:
-        return False
-
+    return get_image_format(img_path) is not None
 
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """Writes tags using pyexiv2 for JPEG, WebP, and PNG with a temp file and auto-healing fallback."""
@@ -172,7 +169,6 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-
 
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """Writes tags to GIF images using comments, handling large GIFs memory-efficiently."""
@@ -235,20 +231,22 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             if temp_path.exists():
                 temp_path.unlink()
 
-
 def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
-    ext = Path(image_path).suffix.lower().lstrip(".")
+    img_path = Path(image_path)
+    fmt = get_image_format(img_path)
+    if fmt is None:
+        raise RuntimeError(f"Could not determine format for {image_path}")
+
     try:
-        if ext in ["jpg", "jpeg", "webp", "png"]:
+        if fmt.lower() in ["jpg", "jpeg", "webp", "png"]:
             write_metadata(image_path, tags_list)
-        elif ext == "gif":
+        elif fmt.lower() == "gif":
             write_gif_tags(image_path, tags_list)
         else:
-            raise ValueError(f"Unsupported file extension: {ext}")
+            raise ValueError(f"Unsupported file format: {fmt}")
     except Exception as e:
         raise RuntimeError(f"Tagging failed for {image_path}: {e}")
-
 
 def get_tags_ollama(client: Any,
                     model: str,
@@ -269,23 +267,23 @@ def get_tags_ollama(client: Any,
     logging.debug(f"Raw Ollama response for {img_path}: {content}")
     return content
 
-
 def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
-    with Image.open(img_path) as img:
-        if img.format is None:
-            logging.error(f"Pillow could not determine the format for {img_path}")
-            mime_type = "image/jpeg"
-        else:
-            fmt = img.format.lower()
-            mime_map = {
-                "jpeg": "image/jpeg",
-                "png": "image/png",
-                "webp": "image/webp",
-                "gif": "image/gif"
-            }
-            mime_type = mime_map.get(fmt, "image/jpeg")
+    fmt = get_image_format(img_path)
+    if fmt is None:
+        logging.error(f"Pillow could not determine the format for {img_path}")
+        mime_type = "image/jpeg"
+    else:
+        fmt_lower = fmt.lower()
+        mime_map = {
+            "jpeg": "image/jpeg",
+            "jpg": "image/jpeg",
+            "png": "image/png",
+            "webp": "image/webp",
+            "gif": "image/gif"
+        }
+        mime_type = mime_map.get(fmt_lower, "image/jpeg")
 
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
@@ -309,7 +307,6 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
     # Removed logging of 'content' to prevent massive log files with base64 image data
     logging.debug(f"Raw LM Studio response received for {img_path}")
     return content
-
 
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
@@ -362,7 +359,6 @@ def is_already_processed(img_path: Path) -> bool:
     except Exception:
         pass
     return False
-
 
 def process_single_image(
     img_path: Path,
@@ -418,7 +414,6 @@ def process_single_image(
         logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
         return "FAILED", img_path.name, str(e), time.time() - start
 
-
 def process_directory(
     directory: str,
     recursive: bool,
@@ -429,6 +424,7 @@ def process_directory(
     ) -> None:
     base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
+    # We keep a broad filter for performance, but the final check is done in process_single_image via get_image_format
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
     image_files = [
         f for f in files if f.is_file() and f.suffix.lower() in valid_extensions
@@ -559,7 +555,6 @@ def process_directory(
             print(f" * {filename} -> {error_msg}")
 
     print("=" * 50)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
