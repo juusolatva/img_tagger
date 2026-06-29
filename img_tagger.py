@@ -175,46 +175,33 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
-    # 1. Extract frames to temporary files to avoid memory issues with large GIFs
-    duration = 100
-    loop = 0
-    frame_paths = []
+    file_size = os.path.getsize(image_path)
+    MAX_MEMORY_SIZE = 64 * 1024 * 1024  # 64MB
 
-    with tempfile.TemporaryDirectory(dir=Path(image_path).parent) as tmp_dir:
+    if file_size <= MAX_MEMORY_SIZE:
+        # In-memory approach for smaller GIFs to avoid I/O thrashing
         with Image.open(image_path) as img:
-            duration = img.info.get("duration", duration)
-            loop = img.info.get("loop", loop)
-            for i, frame in enumerate(ImageSequence.Iterator(img)):
-                p = Path(tmp_dir) / f"frame_{i:04d}.png"
-                frame.save(p, format="PNG")
-                frame_paths.append(p)
+            duration = img.info.get("duration", 100)
+            loop = img.info.get("loop", 0)
+            frames = [frame.copy() for frame in ImageSequence.Iterator(img)]
 
-        # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
-        fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
+        fd, temp_path_str = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
         os.close(fd)
         temp_path = Path(temp_path_str)
 
         try:
-            def frame_generator():
-                for p in frame_paths[1:]:
-                    f = Image.open(p)
-                    yield f
-                    f.close()
-
-            first_frame = Image.open(frame_paths[0])
+            first_frame = frames[0]
             first_frame.save(
                 temp_path,
                 format="GIF",
                 save_all=True,
-                append_images=frame_generator(),
+                append_images=frames[1:],
                 duration=duration,
                 loop=loop,
                 comment=f"{tags_str} {marker}"
             )
-            first_frame.close()
 
             # Robustly replace the file using Path objects with retries for Windows handle release
-            import time
             success = False
             for _ in range(10):  # Increased retries and sleep duration
                 try:
@@ -226,10 +213,65 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
 
             if not success:
                 raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
-
         finally:
             if temp_path.exists():
                 temp_path.unlink()
+    else:
+        # Original disk-based approach for larger GIFs (> 64MB)
+        duration = 100
+        loop = 0
+        frame_paths = []
+
+        with tempfile.TemporaryDirectory(dir=Path(image_path).parent) as tmp_dir:
+            with Image.open(image_path) as img:
+                duration = img.info.get("duration", duration)
+                loop = img.info.get("loop", loop)
+                for i, frame in enumerate(ImageSequence.Iterator(img)):
+                    p = Path(tmp_dir) / f"frame_{i:04d}.png"
+                    frame.save(p, format="PNG")
+                    frame_paths.append(p)
+
+            # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
+            fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
+            os.close(fd)
+            temp_path = Path(temp_path_str)
+
+            try:
+                def frame_generator():
+                    for p in frame_paths[1:]:
+                        f = Image.open(p)
+                        yield f
+                        f.close()
+
+                first_frame = Image.open(frame_paths[0])
+                first_frame.save(
+                    temp_path,
+                    format="GIF",
+                    save_all=True,
+                    append_images=frame_generator(),
+                    duration=duration,
+                    loop=loop,
+                    comment=f"{tags_str} {marker}"
+                )
+                first_frame.close()
+
+                # Robustly replace the file using Path objects with retries for Windows handle release
+                success = False
+                for _ in range(10):  # Increased retries and sleep duration
+                    try:
+                        temp_path.replace(image_path)
+                        success = True
+                        break
+                    except OSError:
+                        time.sleep(0.5)
+
+                if not success:
+                    raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink()
+
 
 def tag_image(image_path: str, tags_list: list[str]) -> None:
     """Embeds tags into the image metadata across Windows and Linux platforms."""
