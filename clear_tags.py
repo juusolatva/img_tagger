@@ -96,9 +96,8 @@ def clear_tags(image_path):
                 try:
                     def frame_generator():
                         for p in frame_paths[1:]:
-                            f = Image.open(p)
-                            yield f
-                            f.close()
+                            with Image.open(p) as f:
+                                yield f
 
                     first_frame = Image.open(frame_paths[0])
                     first_frame.save(
