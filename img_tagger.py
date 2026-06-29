@@ -247,7 +247,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
                     for p in frame_paths[1:]:
                         f = Image.open(p)
                         yield f
-                        f.close()
+                        # Removed f.close() to prevent ValueError due to Pillow's lazy loading
 
                 first_frame = Image.open(frame_paths[0])
                 first_frame.save(
