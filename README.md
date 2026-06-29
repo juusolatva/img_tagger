@@ -38,4 +38,4 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 
 ### Known issues
 - Animated **WebPs** are not properly supported
-- May have issues with some **PNGs** or **GIFs**
+- Animated **GIFs** with variable frame duration are not supported

@@ -12,3 +12,4 @@
 - [x] Limit memory usage with large animated GIFs
 - [ ] Test that animated WebPs are handled properly
 - [ ] Test PNGs and GIFs with non-standard chunks
+- [ ] Implement handling of GIFs with variable frame duration
