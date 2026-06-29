@@ -3,6 +3,7 @@
 ## Documentation
 - [ ] List command-line arguments and options in README
 - [ ] Give examples of script usage in README
+- [ ] Add module-level docstring to the start of the files
 
 ## Functionality
 - [x] Option to change the default prompt from a text file
