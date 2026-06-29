@@ -273,6 +273,20 @@ def get_tags_ollama(client: Any,
 def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> str:
     """Encodes image to base64 and sends payload to an LM Studio server."""
     logging.debug(f"Requesting tags from LM Studio ({model}) for {img_path}")
+    with Image.open(img_path) as img:
+        if img.format is None:
+            logging.error(f"Pillow could not determine the format for {img_path}")
+            mime_type = "image/jpeg"
+        else:
+            fmt = img.format.lower()
+            mime_map = {
+                "jpeg": "image/jpeg",
+                "png": "image/png",
+                "webp": "image/webp",
+                "gif": "image/gif"
+            }
+            mime_type = mime_map.get(fmt, "image/jpeg")
+
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
@@ -285,7 +299,7 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
                     {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
                     },
                 ],
             }
