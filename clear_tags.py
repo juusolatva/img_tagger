@@ -53,7 +53,7 @@ def clear_tags(image_path):
                         img.clear_xmp()
                         img.clear_iptc()
 
-                    os.replace(temp_path, image_path)
+                    Path(temp_path).replace(image_path)
                     print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
 
                 except RuntimeError as e:
@@ -63,14 +63,13 @@ def clear_tags(image_path):
                             format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
                             pil_img.save(temp_path, format=format_map.get(ext, "JPEG"))
 
-                        os.replace(temp_path, image_path)
+                        Path(temp_path).replace(image_path)
                         print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
                     else:
                         raise e
 
             except Exception as e:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                Path(temp_path).unlink(missing_ok=True)
                 raise e
 
         elif ext == "gif":

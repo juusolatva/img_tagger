@@ -195,12 +195,11 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                 else:
                     raise e # Re-raise if it's a different pyexiv2 error
 
-            os.replace(temp_path, image_path)
+            Path(temp_path).replace(image_path)
             logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
 
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        Path(temp_path).unlink(missing_ok=True)
 
 
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
@@ -214,7 +213,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
-    file_size = os.path.getsize(image_path)
+    file_size = Path(image_path).stat().st_size
     MAX_MEMORY_SIZE = 64 * 1024 * 1024  # 64MB
 
     if file_size <= MAX_MEMORY_SIZE:
@@ -258,7 +257,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             if temp_path.exists():
                 temp_path.unlink()
     else:
-        logging.info(f"Large GIF detected ({os.path.getsize(image_path)} bytes). Using disk-based processing with uniform duration.")
+        logging.info(f"Large GIF detected ({Path(image_path).stat().st_size} bytes). Using disk-based processing with uniform duration.")
         # Original disk-based approach for larger GIFs (> 64MB)
         duration = 100
         loop = 0
@@ -745,7 +744,7 @@ if __name__ == "__main__":
 
     setup_logging(args.log)
 
-    if not os.path.isdir(args.directory):
+    if not Path(args.directory).is_dir():
         print(f"Error: The folder '{args.directory}' could not be located.")
         sys.exit(1)
 
