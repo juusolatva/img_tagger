@@ -12,9 +12,8 @@ def robust_replace(src: Path, dst: Path):
     """
     Robustly replace the file using Path objects with retries for Windows handle release.
     """
-
     success = False
-    for _ in range(10):  # Increased retries and sleep duration
+    for _ in range(10):
         try:
             src.replace(dst)
             success = True
@@ -30,94 +29,115 @@ def clear_tags(image_path):
     """
     Removes all metadata (EXIF, XMP, IPTC) from standard images and clears
     comments from GIFs to reset images for testing purposes.
-
-    Args:
-        image_path (Path): The path object of the image file to be processed.
-
-    Raises:
-        RuntimeError: If pyexiv2 encounters an error not related to corruption.
-        OSError: If a file operation fails during processing.
     """
-
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
-            fd, temp_path = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+            fd, temp_path_str = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
             os.close(fd)
+            temp_path = Path(temp_path_str)
+
             try:
                 shutil.copy2(image_path, temp_path)
                 try:
                     # Primary attempt using pyexiv2 to wipe EVERYTHING
-                    with pyexiv2.Image(temp_path) as img:
+                    with pyexiv2.Image(str(temp_path)) as img:
                         img.clear_exif()
                         img.clear_xmp()
                         img.clear_iptc()
 
-                    Path(temp_path).replace(image_path)
+                    # FIX: Use robust_replace instead of direct .replace()
+                    robust_replace(temp_path, image_path)
                     print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
 
                 except RuntimeError as e:
                     if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
-                        # The image is corrupted. Sanitize with Pillow to strip broken headers.
+                        # Sanitize with Pillow to strip broken headers.
+                        # NOTE: Keeping high quality (95) to prevent noticeable generation loss
                         with Image.open(image_path) as pil_img:
                             format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
-                            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"))
+                            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"), quality=95)
 
-                        Path(temp_path).replace(image_path)
-                        print(f"  Sanitized and cleared (Pillow+pyexiv2) for: {image_path.name}")
+                        # FIX: Use robust_replace instead of direct .replace()
+                        robust_replace(temp_path, image_path)
+                        print(f"  Sanitized and cleared (Pillow) for: {image_path.name}")
                     else:
                         raise e
 
             except Exception as e:
-                Path(temp_path).unlink(missing_ok=True)
+                temp_path.unlink(missing_ok=True)
                 raise e
 
         elif ext == "gif":
-            # 1. Extract frames to temporary files to avoid memory issues with large GIFs
-            duration = 100
-            loop = 0
-            frame_paths = []
+            file_size = image_path.stat().st_size
+            MAX_MEMORY_SIZE = 64 * 1024 * 1024
 
-            with tempfile.TemporaryDirectory(dir=image_path.parent) as tmp_dir:
+            fd, temp_path_str = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+            os.close(fd)
+            temp_path = Path(temp_path_str)
+
+            try:
                 with Image.open(image_path) as img:
-                    duration = img.info.get("duration", duration)
-                    loop = img.info.get("loop", loop)
-                    for i, frame in enumerate(ImageSequence.Iterator(img)):
-                        p = Path(tmp_dir) / f"frame_{i:04d}.png"
-                        frame.save(p, format="PNG")
-                        frame_paths.append(p)
+                    loop = img.info.get("loop", 0)
+                    # FIX: Capture per-frame duration to preserve variable frame rates
+                    durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
 
-                # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
-                fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
-                os.close(fd)
-                temp_path = Path(temp_path_str)
+                    if file_size > MAX_MEMORY_SIZE:
+                        print(f"  Processing large GIF ({file_size / (1024*1024):.1f}MB) using disk-based approach...")
+                        with tempfile.TemporaryDirectory(dir=image_path.parent) as temp_dir:
+                            temp_dir_path = Path(temp_dir)
+                            frame_files = []
 
-                try:
-                    def frame_generator():
-                        for p in frame_paths[1:]:
-                            with Image.open(p) as f:
-                                yield f
+                            # Save frames to disk as PNGs
+                            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                                frame_path = temp_dir_path / f"frame_{i:05d}.png"
+                                frame.save(frame_path, format="PNG")
+                                frame_files.append(frame_path)
 
-                    first_frame = Image.open(frame_paths[0])
-                    first_frame.save(
-                        temp_path,
-                        format="GIF",
-                        save_all=True,
-                        append_images=frame_generator(),
-                        duration=duration,
-                        loop=loop,
-                        comment=""
-                    )
-                    first_frame.close()
+                            def disk_frame_generator():
+                                for i in range(1, len(frame_files)):
+                                    yield Image.open(frame_files[i])
 
-                    # Robustly replace the file using Path objects with retries for Windows handle release
-                    robust_replace(temp_path, image_path)
+                            first_frame = Image.open(frame_files[0])
+                            first_frame.save(
+                                temp_path,
+                                format="GIF",
+                                save_all=True,
+                                append_images=disk_frame_generator(),
+                                duration=durations,  # Pass the list of exact durations
+                                loop=loop,
+                                comment=""
+                            )
+                            first_frame.close()
+                    else:
+                        # Reset the image pointer back to the first frame
+                        img.seek(0)
+                        first_frame = img.copy()
 
-                    print(f"  Cleared GIF comment (memory-efficient): {image_path.name}")
-                except Exception as e:
-                    if temp_path.exists():
-                        temp_path.unlink()
-                    raise e
+                        # FIX: Stream frame copies in-memory to bypass heavy disk PNG writes
+                        def frame_generator():
+                            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                                if i == 0:
+                                    continue
+                                yield frame.copy()
+
+                        first_frame.save(
+                            temp_path,
+                            format="GIF",
+                            save_all=True,
+                            append_images=frame_generator(),
+                            duration=durations,  # Pass the list of exact durations
+                            loop=loop,
+                            comment=""
+                        )
+                        first_frame.close()
+
+                robust_replace(temp_path, image_path)
+                print(f"  Cleared GIF comment: {image_path.name}")
+
+            except Exception as e:
+                temp_path.unlink(missing_ok=True)
+                raise e
 
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
@@ -132,6 +152,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     base_path = Path(args.directory)
+
+    # FIX: Explicit directory check
+    if not base_path.is_dir():
+        print(f"Error: The path '{args.directory}' is not a valid directory.")
+        exit(1)
+
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
     files = base_path.rglob("*") if args.recursive else base_path.iterdir()
 
