@@ -671,7 +671,6 @@ def process_directory(
     """
 
     base_path = Path(directory)
-    base_path = Path(directory)
     files = base_path.rglob("*") if recursive else base_path.iterdir()
     # We keep a broad filter for performance, but the final check is done in process_single_image via get_image_format
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
