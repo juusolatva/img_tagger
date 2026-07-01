@@ -74,50 +74,52 @@ def setup_logging(log_path: str | None) -> None:
 def listen_for_quit(stop_event: threading.Event) -> None:
     """
     A daemon thread that monitors standard input for a 'q' keypress to trigger
-    a graceful shutdown across different operating systems.
-
-    Args:
-        stop_event: A threading.Event object that will be set when 'q' is detected.
+    a graceful shutdown across different operating systems without hogging the CPU.
     """
 
     if platform.system() == "Windows" and msvcrt is not None:
         while not stop_event.is_set():
             if msvcrt.kbhit():
-                key = msvcrt.getch().decode("utf-8").lower()
-                if key == "q":
-                    stop_event.set()
-                    break
+                try:
+                    key = msvcrt.getch().decode("utf-8").lower()
+                    if key == "q":
+                        stop_event.set()
+                        break
+                except Exception:
+                    pass
+            time.sleep(0.05)  # Prevents a 100% CPU hot-spin on Windows when idle
     else:
         try:
-            # Ensure termios and tty are available (not None from top-level import)
             if termios is None or tty is None:
                 raise ImportError("termios/tty not available")
 
             fd = sys.stdin.fileno()
-            # Save original terminal settings using getattr to satisfy static analysis
             old_settings = getattr(termios, "tcgetattr")(fd)
             try:
-                # Switch to cbreak mode (unbuffered, but handles Ctrl+C)
                 getattr(tty, "setcbreak")(fd)
                 while not stop_event.is_set():
+                    # select waits up to 0.1 seconds for input
                     if select.select([sys.stdin], [], [], 0.1)[0]:
-                        char = sys.stdin.read(1).lower()
-                        if char == "q":
+                        char = sys.stdin.read(1)
+                        if char == "":  # EOF reached (detached terminal / closed stdin)
+                            logging.debug("Stdin EOF reached; exiting Q monitor thread.")
+                            break
+                        if char.lower() == "q":
                             stop_event.set()
                             break
             finally:
-                # Always restore original settings
                 getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
-        except (ImportError, AttributeError, Exception):
-            logging.debug("Terminal input unavailable; Q detection disabled")
-            # Fallback for systems where termios/tty are not available or if in a non-interactive shell
+        except (ImportError, AttributeError, Exception) as e:
+            logging.debug(f"Terminal input unavailable ({e}); basic fallback active")
             while not stop_event.is_set():
-                time.sleep(0.5)
                 if select.select([sys.stdin], [], [], 0.1)[0]:
-                    char = sys.stdin.read(1).lower()
-                    if char == "q":
+                    char = sys.stdin.read(1)
+                    if char == "":
+                        break
+                    if char.lower() == "q":
                         stop_event.set()
                         break
+                time.sleep(0.1)  # Prevents hot-spinning in the fallback loop
 
 
 def get_image_format(img_path: Path) -> Optional[str]:
