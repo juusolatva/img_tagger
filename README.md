@@ -1,6 +1,6 @@
 # Image tagger using a vision-language model
 
-A python script that tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and possibly subdirectories) by sending them to a local vision-language model (either **ollama** or **LM Studio** running on the same computer or the local network). The tags the model sends back are added as metadata to the images. The accuracy of the tags is depends on the model.
+A python script that tags all the **JPEG**, **WebP**, **PNG** and **GIF** files in the directory (and possibly subdirectories) by sending them to a local vision-language model (either **ollama** or **LM Studio** running on the same computer or the local network). The tags the model sends back are added as metadata to the images. The accuracy of the tags depends on the model.
 
 ## Features
 
@@ -37,4 +37,3 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 
 ### Known issues
 - Animated **WebPs** are not properly supported
-- Animated **GIFs** with variable frame duration are not supported

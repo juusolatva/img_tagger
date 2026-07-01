@@ -7,11 +7,11 @@
 
 ## Functionality
 - [x] Option to change the default prompt from a text file
-- [ ] Model output should be parsed to check it actually contains tags
+- [x] Model output should be parsed to check it actually contains tags
 - [ ] Add and test logic for using more than 4 workers
 
 ## Image file format handling
 - [x] Limit memory usage with large animated GIFs
 - [ ] Test that animated WebPs are handled properly
 - [ ] Test PNGs and GIFs with non-standard chunks
-- [ ] Implement handling of GIFs with variable frame duration
+- [ ] Test handling of GIFs with variable frame duration
