@@ -31,7 +31,7 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 - Run *img_tagger.py -h* or *img_tagger.py --help* to see the arguments and options
 - Press `Q` to quit and then wait for it to finish all the work in progress
 - The script doesn't respect preexisting tags so keep in mind that they will be overwritten
-- Processing the first image takes longer due to the HTTP handshake with the server so be patient
+- Processing the first image takes longer due so be patient
 - The default model is **Qwen3 VL 8B** but any model capable of processing image inputs should work
 - Allows a maximum of 4 workers which is the default limit for both **ollama** and **LM Studio**
 - In case you need to you can clear all the tags in a folder using the *clear_tags.py* script
