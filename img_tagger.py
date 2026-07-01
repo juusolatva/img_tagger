@@ -204,7 +204,20 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                 else:
                     raise e # Re-raise if it's a different pyexiv2 error
 
-            Path(temp_path).replace(image_path)
+            success = True
+            if platform.system() == "Windows":
+                success = False
+                for _ in range(10):
+                    try:
+                        Path(temp_path).replace(image_path)
+                        success = True
+                        break
+                    except OSError:
+                        time.sleep(0.5)
+
+            if not success:
+                raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+
             logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
 
     finally:
@@ -215,10 +228,6 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """
     Writes tags to GIF images using comments, handling large GIFs memory-efficiently.
 
-    Note: For files larger than 64MB, frames are temporarily saved as PNGs to maintain
-    color quality, but variable frame durations are not supported (they default to a
-    uniform duration).
-
     Args:
         image_path: The path to the GIF file.
         tags_list: A list of strings representing the tags to embed.
@@ -227,107 +236,57 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     marker = "[PROCESSED BY AI]"
     tags_str = ", ".join(tags_list)
 
-    file_size = Path(image_path).stat().st_size
-    MAX_MEMORY_SIZE = 64 * 1024 * 1024  # 64MB
+    with Image.open(image_path) as img:
+        loop = img.info.get("loop", 0)
+        # Capture per-frame duration to preserve variable frame rates
+        durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
 
-    if file_size <= MAX_MEMORY_SIZE:
-        # In-memory approach for smaller GIFs to avoid I/O thrashing
+    def frame_generator():
+        # This generator streams frame copies one-by-one into the file writer.
+        # It handles files larger than 64MB flawlessly with O(1) memory overhead.
         with Image.open(image_path) as img:
-            loop = img.info.get("loop", 0)
-            # Capture per-frame duration to preserve variable frame rates
-            durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
-            frames = [frame.copy() for frame in ImageSequence.Iterator(img)]
+            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                if i == 0:
+                    continue
+                yield frame.copy()
 
-        fd, temp_path_str = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
-        os.close(fd)
-        temp_path = Path(temp_path_str)
+    fd, temp_path_str = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
+    os.close(fd)
+    temp_path = Path(temp_path_str)
 
-        try:
-            first_frame = frames[0]
-            first_frame.save(
-                temp_path,
-                format="GIF",
-                save_all=True,
-                append_images=frames[1:],
-                duration=durations,
-                loop=loop,
-                comment=f"{tags_str} {marker}"
-            )
-            # Robustly replace the file using Path objects with retries for Windows handle release
-            success = True
-            if platform.system() == "Windows":
-                success = False
-                for _ in range(10):  # Increased retries and sleep duration
-                    try:
-                        temp_path.replace(image_path)
-                        success = True
-                        break
-                    except OSError:
-                        time.sleep(0.5)
+    try:
+        # Get the first frame to use as the base for saving
+        with Image.open(image_path) as img:
+            first_frame = ImageSequence.Iterator(img).__next__()
+            first_frame_copy = first_frame.copy()
 
-            if not success:
-                raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-    else:
-        logging.info(f"Large GIF detected ({Path(image_path).stat().st_size} bytes). Using disk-based processing to maintain frame rates.")
-        # Disk-based approach for larger GIFs (> 64MB)
-        loop = 0
-        frame_paths = []
+        first_frame_copy.save(
+            temp_path,
+            format="GIF",
+            save_all=True,
+            append_images=frame_generator(),
+            duration=durations,
+            loop=loop,
+            comment=f"{tags_str} {marker}"
+        )
 
-        with tempfile.TemporaryDirectory(dir=Path(image_path).parent) as tmp_dir:
-            with Image.open(image_path) as img:
-                loop = img.info.get("loop", loop)
-                # Capture per-frame duration to preserve variable frame rates
-                durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
-                for i, frame in enumerate(ImageSequence.Iterator(img)):
-                    p = Path(tmp_dir) / f"frame_{i:04d}.png"
-                    frame.save(p, format="PNG")
-                    frame_paths.append(p)
+        # Robustly replace the file using Path objects with retries for Windows handle release
+        success = True
+        if platform.system() == "Windows":
+            success = False
+            for _ in range(10):  # Increased retries and sleep duration
+                try:
+                    temp_path.replace(image_path)
+                    success = True
+                    break
+                except OSError:
+                    time.sleep(0.5)
 
-            # Source image handle is now closed. Create the new GIF from saved frames inside the temp dir.
-            fd, temp_path_str = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
-            os.close(fd)
-            temp_path = Path(temp_path_str)
-
-            try:
-                def frame_generator():
-                    for p in frame_paths[1:]:
-                        f = Image.open(p)
-                        yield f
-                        # Removed f.close() to prevent ValueError due to Pillow's lazy loading
-
-                first_frame = Image.open(frame_paths[0])
-                first_frame.save(
-                    temp_path,
-                    format="GIF",
-                    save_all=True,
-                    append_images=frame_generator(),
-                    duration=durations,
-                    loop=loop,
-                    comment=f"{tags_str} {marker}"
-                )
-                first_frame.close()
-
-                # Robustly replace the file using Path objects with retries for Windows handle release
-                success = True
-                if platform.system() == "Windows":
-                    success = False
-                    for _ in range(10):  # Increased retries and sleep duration
-                        try:
-                            temp_path.replace(image_path)
-                            success = True
-                            break
-                        except OSError:
-                            time.sleep(0.5)
-
-                if not success:
-                    raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
-
-            finally:
-                if temp_path.exists():
-                    temp_path.unlink()
+        if not success:
+            raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def tag_image(image_path: str, tags_list: list[str], fmt: Optional[str] = None) -> None:
@@ -495,29 +454,18 @@ def extract_json_tags(json_string: str) -> List[str]:
         A list of extracted tag strings.
     """
 
-    # Simple parser for ["tag1", "tag2"] style arrays
-    tags = []
-    current = ""
-    in_quotes = False
-
-    for char in json_string:
-        if char == '"' and (not current or current[-1] != '\\'):
-            in_quotes = not in_quotes
-            if in_quotes:
-                current += char
-            else:
-                # Check for trailing comma before closing bracket
-                if char == ']' and not current.strip():
-                    break
-        elif not in_quotes:
-            if char.isalpha():
-                current += char
-            elif char in ',]':
-                if current.strip() and current.strip().lower() not in ['and', 'or']:
-                    tags.append(current.strip().lower())
-                current = ""
-
-    return tags
+    # Robustly extract strings from a JSON-like array string
+    # Handles ["tag1", "tag2"], [tag1, tag2], and even messy inputs
+    import re
+    # Find all content inside quotes or standalone words/numbers separated by commas/brackets
+    tags = re.findall(r'"([^"]*)"|([^,\]\s]+)', json_string)
+    # re.findall with multiple groups returns a list of tuples: [('tag1', ''), ('', 'tag2')]
+    cleaned_tags = []
+    for tag_quoted, tag_unquoted in tags:
+        val = tag_quoted if tag_quoted else tag_unquoted
+        if val and val.lower() not in ['and', 'or']:
+            cleaned_tags.append(val.strip().lower())
+    return cleaned_tags
 
 
 def parse_text_tags(text: str) -> List[str]:
@@ -531,7 +479,7 @@ def parse_text_tags(text: str) -> List[str]:
     """
 
     # Split by commas or newlines
-    parts = re.split(r'[,\\n]+', text)
+    parts = re.split(r'[,\n]+', text)
     tags = []
     for part in parts:
         part = part.strip().strip('"\'').lower()
