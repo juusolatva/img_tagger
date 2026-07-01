@@ -2,6 +2,7 @@ import argparse
 import base64
 import os
 import platform
+import re
 import select
 import sys
 import threading
@@ -13,7 +14,7 @@ import pyexiv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 from PIL import Image, ImageSequence, PngImagePlugin
 
 try:
@@ -433,6 +434,103 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
     return content
 
 
+def parse_model_output(raw_output: str) -> Optional[List[str]]:
+    """Parse model output and extract tags robustly with normalization.
+
+    Tries multiple patterns (JSON, bullet points, intro text, comma-separated)
+    to handle various LLM output styles. Returns None if parsing fails or
+    insufficient tags are extracted.
+    """
+
+    # Pattern 1: JSON array ["tag1", "tag2"] - most reliable
+    json_match = re.search(r'\[\s*"?([^",\]]+(?:"[^",\]]*)?)+\s*\]', raw_output)
+    if json_match:
+        return normalize_tags(extract_json_tags(json_match.group()))
+
+    # Pattern 2: Bullet points or numbered lists (minimum 6 items expected)
+    bullets = re.findall(r'[-•★●]\s*(.+)', raw_output)
+    if len(bullets) >= 6:
+        return normalize_tags([b.strip().strip('"').lower() for b in bullets])
+
+    # Pattern 3: Numbered lists like "1. tag" (minimum 6 items expected)
+    numbered = re.findall(r'\d+\.\s+(.+)', raw_output)
+    if len(numbered) >= 6:
+        return normalize_tags([n.strip().strip('"').lower() for n in numbered])
+
+    # Pattern 4: "Here are the tags:" style intro text extraction
+    text_after_intro = re.search(r'(?:tags|keywords)\s*[:\-]? (.+)', raw_output, re.IGNORECASE)
+    if text_after_intro:
+        return normalize_tags(parse_text_tags(text_after_intro.group(1)))
+
+    # Fallback: comma-separated (current behavior)
+    return normalize_tags([tag.strip().strip('"\'').lower() for tag in raw_output.split(",") if tag.strip()])
+
+
+def extract_json_tags(json_string: str) -> List[str]:
+    """Extract tag strings from a JSON array string."""
+    # Simple parser for ["tag1", "tag2"] style arrays
+    tags = []
+    current = ""
+    in_quotes = False
+
+    for char in json_string:
+        if char == '"' and (not current or current[-1] != '\\'):
+            in_quotes = not in_quotes
+            if in_quotes:
+                current += char
+            else:
+                # Check for trailing comma before closing bracket
+                if char == ']' and not current.strip():
+                    break
+        elif not in_quotes:
+            if char.isalpha():
+                current += char
+            elif char in ',]':
+                if current.strip() and current.strip().lower() not in ['and', 'or']:
+                    tags.append(current.strip().lower())
+                current = ""
+
+    return tags
+
+
+def parse_text_tags(text: str) -> List[str]:
+    """Parse tags from text that follows intro patterns."""
+    # Split by commas or newlines
+    parts = re.split(r'[,\\n]+', text)
+    tags = []
+    for part in parts:
+        part = part.strip().strip('"\'').lower()
+        # Skip common non-tag words
+        if part and len(part) > 2 and part not in ['and', 'or', 'the', 'a', 'an', 'is', 'are', 'of']:
+            tags.append(part)
+    return tags
+
+
+def normalize_tags(tags: List[str], min_count: int = 6, max_count: int = 12) -> Optional[List[str]]:
+    """Normalize tags and enforce count constraints.
+
+    Normalizes each tag (lowercase, strip whitespace), removes duplicates while
+    preserving order, then enforces the 6-12 tag minimum from your prompt.
+    Returns None if fewer than min_count valid tags remain.
+    """
+
+    # Strip, lowercase, remove duplicates while preserving order
+    seen = set()
+    normalized = []
+    for tag in tags:
+        tag = tag.strip().lower()
+        if tag and tag not in seen:
+            seen.add(tag)
+            normalized.append(tag)
+
+    # Enforce max_count (12) by trimming excess
+    if len(normalized) > max_count:
+        return normalized[:max_count]
+
+    # Return None if we don't meet minimum, let caller decide how to handle it
+    return normalized if len(normalized) >= min_count else None
+
+
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker."""
 
@@ -518,26 +616,30 @@ def process_single_image(
         else:
             raw_output = get_tags_lm_studio(client, model, img_path, prompt)
 
-        # Clean the tags and check if we actually got anything
-        tags = [tag.strip(" \"'") for tag in raw_output.split(",") if tag.strip()]
+        # Parse model output robustly (handles JSON, bullets, intro text, or comma-separated)
+        parsed_tags = parse_model_output(raw_output)
 
-        if tags:
-            tag_image(str(img_path), tags, fmt=fmt)
-            logging.info(f"Successfully tagged {img_path.name} with {tags}")
-            return (
-                "SUCCESS",
-                img_path.name,
-                f"Generated Tags: {tags}",
-                time.time() - start,
-            )
-        else:
-            logging.warning(f"Empty tags list returned from model for {img_path.name}")
+        if not parsed_tags:
+            logging.warning(f"Failed to extract valid tags from model response for {img_path.name}")
             return (
                 "FAILED",
                 img_path.name,
-                "Empty tags list returned from model",
+                "Invalid or insufficient tags returned from model",
                 time.time() - start,
             )
+
+        # Apply 6-12 tag constraint if parsing succeeded but count was under minimum
+        if len(parsed_tags) < 6:
+            logging.warning(f"Model returned only {len(parsed_tags)} tags for {img_path.name}, using all available")
+
+        tag_image(str(img_path), parsed_tags, fmt=fmt)
+        logging.info(f"Successfully tagged {img_path.name} with {parsed_tags}")
+        return (
+            "SUCCESS",
+            img_path.name,
+            f"Generated Tags: {parsed_tags}",
+            time.time() - start,
+        )
 
     except Exception as e:
         logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
