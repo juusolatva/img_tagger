@@ -1,3 +1,11 @@
+"""
+Module to clear metadata (EXIF, XMP, IPTC) and comments from images.
+
+This module provides utilities to sanitize image files by removing metadata
+from common formats (JPG, JPEG, WebP, PNG) and clearing comments from GIFs.
+It is primarily intended for resetting images for testing purposes.
+"""
+
 import argparse
 import os
 import tempfile
@@ -11,7 +19,15 @@ from PIL import Image, ImageSequence
 def robust_replace(src: Path, dst: Path):
     """
     Robustly replace the file using Path objects with retries for Windows handle release.
+
+    Args:
+        src (Path): The source Path object to be replaced.
+        dst (Path): The destination Path object.
+
+    Raises:
+        OSError: If the replacement fails after multiple retries.
     """
+
     success = False
     for _ in range(10):
         try:
@@ -29,7 +45,14 @@ def clear_tags(image_path):
     """
     Removes all metadata (EXIF, XMP, IPTC) from standard images and clears
     comments from GIFs to reset images for testing purposes.
+
+    Args:
+        image_path (Path): The path to the image file.
+
+    Raises:
+        Exception: If an error occurs during metadata clearing or sanitization.
     """
+
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
