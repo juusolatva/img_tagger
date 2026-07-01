@@ -167,7 +167,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
         with metadata_lock:
             try:
                 # Primary attempt using pyexiv2 (separated into EXIF and XMP)
-                with pyexiv2.Image(temp_path) as img:
+                with pyexiv2.Image(temp_path, encoding='utf-8') as img:
                     img.modify_exif({
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
                     })
@@ -186,7 +186,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                         pil_img.save(temp_path, format=pil_img.format)
 
                     # Retry pyexiv2 on the newly cleaned temporary file
-                    with pyexiv2.Image(temp_path) as img:
+                    with pyexiv2.Image(temp_path, encoding='utf-8') as img:
                         img.modify_exif({
                         'Exif.Photo.UserComment': f"{tags_str} {marker}"
                         })
@@ -540,16 +540,23 @@ def is_already_processed(img_path: Path) -> bool:
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
 
-    try:
-        if ext in ["jpg", "jpeg", "webp", "png"]:
+    if ext in ["jpg", "jpeg", "webp", "png"]:
+        # 1. Primary metadata inspection using pyexiv2
+        try:
             with metadata_lock:
-                with pyexiv2.Image(str(p)) as img:
-                    # 1. Grab the full dictionaries (No arguments!)
+                # Explicitly pass encoding='utf-8' to handle non-ASCII path characters like 'ö'
+                with pyexiv2.Image(str(p), encoding='utf-8') as img:
+                    exif_dict, xmp_dict = {}, {}
+
+                    # Read EXIF and XMP independently so one failing doesn't kill both
                     try:
                         exif_dict = img.read_exif()
+                    except Exception:
+                        pass
+                    try:
                         xmp_dict = img.read_xmp()
                     except Exception:
-                        exif_dict, xmp_dict = {}, {}
+                        pass
 
                     keys_to_check = [
                         "Exif.Photo.UserComment",
@@ -558,7 +565,7 @@ def is_already_processed(img_path: Path) -> bool:
                         "Xmp.dc.subject"
                     ]
 
-                    # 2. Check the specific keys
+                    # Check targeted keys
                     for key in keys_to_check:
                         data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
                         if data:
@@ -566,24 +573,31 @@ def is_already_processed(img_path: Path) -> bool:
                             if marker in val:
                                 return True
 
-                    # 3. Fallback: check all values in the dictionaries
+                    # Fallback lookup through all read metadata elements
                     for val in list(exif_dict.values()) + list(xmp_dict.values()):
                         if val and marker in (val.decode("utf-8", errors="ignore") if isinstance(val, bytes) else str(val)):
                             return True
+        except Exception as e:
+            logging.debug(f"pyexiv2 metadata read failed for {p.name} ({e}); trying Pillow fallback.")
 
-                # 4. Fallback to Pillow's info dictionary
-                with Image.open(p) as img:
-                    for key, value in img.info.items():
-                        if isinstance(value, str) and marker in value:
-                            return True
+        # 2. Fully isolated fallback check using Pillow
+        try:
+            with Image.open(p) as img:
+                for key, value in img.info.items():
+                    if isinstance(value, str) and marker in value:
+                        return True
+        except Exception as e:
+            logging.debug(f"Pillow fallback failed for {p.name}: {e}")
 
-        elif ext == "gif":
+    elif ext == "gif":
+        try:
             with Image.open(p) as img:
                 comment = img.info.get("comment", "")
                 if comment and marker in str(comment):
                     return True
-    except Exception:
-        pass
+        except Exception as e:
+            logging.debug(f"Pillow failed to read GIF comments for {p.name}: {e}")
+
     return False
 
 
