@@ -183,7 +183,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
 
                     # Open with Pillow (more forgiving) and save to temp_path to strip broken EXIF
                     with Image.open(image_path) as pil_img:
-                        pil_img.save(temp_path, format=pil_img.format)
+                        pil_img.save(temp_path, format=pil_img.format, quality=95)
 
                     # Retry pyexiv2 on the newly cleaned temporary file
                     with pyexiv2.Image(temp_path, encoding='utf-8') as img:
