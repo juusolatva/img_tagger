@@ -222,8 +222,9 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     if file_size <= MAX_MEMORY_SIZE:
         # In-memory approach for smaller GIFs to avoid I/O thrashing
         with Image.open(image_path) as img:
-            duration = img.info.get("duration", 100)
             loop = img.info.get("loop", 0)
+            # Capture per-frame duration to preserve variable frame rates
+            durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
             frames = [frame.copy() for frame in ImageSequence.Iterator(img)]
 
         fd, temp_path_str = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
@@ -237,11 +238,10 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
                 format="GIF",
                 save_all=True,
                 append_images=frames[1:],
-                duration=duration,
+                duration=durations,
                 loop=loop,
                 comment=f"{tags_str} {marker}"
             )
-
             # Robustly replace the file using Path objects with retries for Windows handle release
             success = True
             if platform.system() == "Windows":
@@ -260,16 +260,16 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             if temp_path.exists():
                 temp_path.unlink()
     else:
-        logging.info(f"Large GIF detected ({Path(image_path).stat().st_size} bytes). Using disk-based processing with uniform duration.")
-        # Original disk-based approach for larger GIFs (> 64MB)
-        duration = 100
+        logging.info(f"Large GIF detected ({Path(image_path).stat().st_size} bytes). Using disk-based processing to maintain frame rates.")
+        # Disk-based approach for larger GIFs (> 64MB)
         loop = 0
         frame_paths = []
 
         with tempfile.TemporaryDirectory(dir=Path(image_path).parent) as tmp_dir:
             with Image.open(image_path) as img:
-                duration = img.info.get("duration", duration)
                 loop = img.info.get("loop", loop)
+                # Capture per-frame duration to preserve variable frame rates
+                durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
                 for i, frame in enumerate(ImageSequence.Iterator(img)):
                     p = Path(tmp_dir) / f"frame_{i:04d}.png"
                     frame.save(p, format="PNG")
@@ -293,7 +293,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
                     format="GIF",
                     save_all=True,
                     append_images=frame_generator(),
-                    duration=duration,
+                    duration=durations,
                     loop=loop,
                     comment=f"{tags_str} {marker}"
                 )
