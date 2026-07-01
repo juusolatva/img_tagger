@@ -53,7 +53,10 @@ DEFAULT_PROMPT = (
 def setup_logging(log_path: str | None) -> None:
     """
     Configures the logging system to write to a specified file.
-    If no path is provided, logging remains at default settings.
+
+    Args:
+        log_path: The file path where logs should be written. If None,
+            logging remains at default settings (usually stdout).
     """
 
     if log_path is None:
@@ -75,6 +78,9 @@ def listen_for_quit(stop_event: threading.Event) -> None:
     """
     A daemon thread that monitors standard input for a 'q' keypress to trigger
     a graceful shutdown across different operating systems without hogging the CPU.
+
+    Args:
+        stop_event: A threading.Event object that will be set when 'q' is pressed.
     """
 
     if platform.system() == "Windows" and msvcrt is not None:
@@ -208,9 +214,14 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
 def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
     """
     Writes tags to GIF images using comments, handling large GIFs memory-efficiently.
+
     Note: For files larger than 64MB, frames are temporarily saved as PNGs to maintain
     color quality, but variable frame durations are not supported (they default to a
     uniform duration).
+
+    Args:
+        image_path: The path to the GIF file.
+        tags_list: A list of strings representing the tags to embed.
     """
 
     marker = "[PROCESSED BY AI]"
@@ -442,6 +453,12 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     Tries multiple patterns (JSON, bullet points, intro text, comma-separated)
     to handle various LLM output styles. Returns None if parsing fails or
     insufficient tags are extracted.
+
+    Args:
+        raw_output: The raw string output from the LLM.
+
+    Returns:
+        A list of normalized tags, or None if no valid tags could be extracted.
     """
 
     # Pattern 1: JSON array ["tag1", "tag2"] - most reliable
@@ -469,7 +486,15 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
 
 
 def extract_json_tags(json_string: str) -> List[str]:
-    """Extract tag strings from a JSON array string."""
+    """Extract tag strings from a JSON array string.
+
+    Args:
+        json_string: A string representing a JSON array of tags.
+
+    Returns:
+        A list of extracted tag strings.
+    """
+
     # Simple parser for ["tag1", "tag2"] style arrays
     tags = []
     current = ""
@@ -496,7 +521,15 @@ def extract_json_tags(json_string: str) -> List[str]:
 
 
 def parse_text_tags(text: str) -> List[str]:
-    """Parse tags from text that follows intro patterns."""
+    """Parse tags from text that follows intro patterns.
+
+    Args:
+        text: The raw text output from the model.
+
+    Returns:
+        A list of extracted and cleaned tag strings.
+    """
+
     # Split by commas or newlines
     parts = re.split(r'[,\\n]+', text)
     tags = []
@@ -514,6 +547,14 @@ def normalize_tags(tags: List[str], min_count: int = 6, max_count: int = 12) -> 
     Normalizes each tag (lowercase, strip whitespace), removes duplicates while
     preserving order, then enforces the 6-12 tag minimum from your prompt.
     Returns None if fewer than min_count valid tags remain.
+
+    Args:
+        tags: A list of raw tags extracted from the model output.
+        min_count: The minimum number of tags required to be considered valid.
+        max_count: The maximum number of tags to keep.
+
+    Returns:
+        A list of normalized tags, or None if the count is below min_count.
     """
 
     # Strip, lowercase, remove duplicates while preserving order
@@ -534,7 +575,14 @@ def normalize_tags(tags: List[str], min_count: int = 6, max_count: int = 12) -> 
 
 
 def is_already_processed(img_path: Path) -> bool:
-    """Checks if the image already contains the AI processed marker."""
+    """Checks if the image already contains the AI processed marker.
+
+    Args:
+        img_path: The path to the image file to check.
+
+    Returns:
+        True if the marker is found in metadata or comments, False otherwise.
+    """
 
     marker = "[PROCESSED BY AI]"
     p = Path(img_path)
@@ -609,7 +657,19 @@ def process_single_image(
     prompt: str,
     stop_event: threading.Event
     ) -> tuple[str, str, str, float]:
-    """Handles the full pipeline for a single image: validation -> AI -> tagging."""
+    """Handles the full pipeline for a single image: validation -> AI -> tagging.
+
+    Args:
+        img_path: The path to the image file to process.
+        client: The client instance for the chosen backend (Ollama or OpenAI).
+        backend: The backend type ('ollama' or 'lm-studio').
+        model: The model identifier to use.
+        prompt: The prompt instructions for tag generation.
+        stop_event: A threading.Event to monitor for user cancellation.
+
+    Returns:
+        A tuple containing (status, filename, message, duration).
+    """
 
     logging.info(f"Processing {img_path.name}")
     fmt = get_image_format(img_path)

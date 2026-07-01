@@ -11,7 +11,15 @@ from PIL import Image, ImageSequence
 def robust_replace(src: Path, dst: Path):
     """
     Robustly replace the file using Path objects with retries for Windows handle release.
+
+    Args:
+        src: The source Path object to be replaced.
+        dst: The destination Path object to replace with.
+
+    Raises:
+        OSError: If the file replacement fails after multiple retries.
     """
+
     success = False
     for _ in range(10):
         try:
@@ -29,7 +37,17 @@ def clear_tags(image_path):
     """
     Removes all metadata (EXIF, XMP, IPTC) from standard images and clears
     comments from GIFs to reset images for testing purposes.
+
+    This function handles standard image formats (jpg, jpeg, webp, png) by
+    attempting to wipe all metadata using pyexiv2. If pyexiv2 fails due to
+    corrupted headers, it falls back to using Pillow to sanitize the image.
+    For GIF files, it clears the comment field while preserving frame durations
+    and loop information.
+
+    Args:
+        image_path: The Path object of the image to be cleared.
     """
+
     ext = image_path.suffix.lower().lstrip(".")
     try:
         if ext in ["jpg", "jpeg", "webp", "png"]:
