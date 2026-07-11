@@ -9,6 +9,7 @@
 - [x] Option to change the default prompt from a text file
 - [x] Model output should be parsed to check it actually contains tags
 - [ ] Add and test logic for using more than 4 workers
+- [ ] Test functionality in Linux
 
 ## Image file format handling
 - [x] Limit memory usage with large animated GIFs
