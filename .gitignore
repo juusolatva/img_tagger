@@ -3,3 +3,4 @@ AGENTS.md
 .kilo/
 .vscode/
 test_images/
+__pycache__/

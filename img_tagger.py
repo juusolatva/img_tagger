@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import logging
+import json
 import shutil
 import tempfile
 import pyexiv2
@@ -421,10 +422,30 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     """
 
     # Pattern 1: JSON array ["tag1", "tag2"] - most reliable
-    json_match = re.search(r'\[\s*"?([^",\]]+(?:"[^",\]]*)?)+\s*\]', raw_output)
-    if json_match:
-        return normalize_tags(extract_json_tags(json_match.group()))
+    parsed = None
 
+    # Fast path: whole output is JSON
+    try:
+        parsed = json.loads(raw_output)
+    except json.JSONDecodeError:
+        parsed = None
+
+    # Fallback: find first bracketed segment and parse that
+    if not isinstance(parsed, list):
+        start = raw_output.find("[")
+        end = raw_output.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            candidate = raw_output[start:end + 1]
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                parsed = None
+
+    if isinstance(parsed, list):
+        json_tags = [str(x).strip().lower() for x in parsed if isinstance(x, (str, int, float))]
+        normalized = normalize_tags(json_tags)
+        if normalized:
+            return normalized
     # Pattern 2: Bullet points or numbered lists (minimum 6 items expected)
     bullets = re.findall(r'[-•★●]\s*(.+)', raw_output)
     if len(bullets) >= 6:
