@@ -1,5 +1,5 @@
-ollama
-openai
-pillow
-pyexiv2
-tqdm
+ollama>=0.4.0
+openai>=1.68.0
+pillow>=12.1.0
+pyexiv2>=2.15.5
+tqdm>=4.66.0
