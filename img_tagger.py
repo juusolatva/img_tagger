@@ -150,6 +150,20 @@ def get_image_format(img_path: Path) -> Optional[str]:
         return None
 
 
+def robust_replace(src: Path, dst: Path) -> None:
+    """Atomically replace dst with src, with Windows retry handling for file locks."""
+    if platform.system() == "Windows":
+        for _ in range(10):
+            try:
+                src.replace(dst)
+                return
+            except OSError:
+                time.sleep(0.5)
+        raise OSError(f"Failed to replace {src} with {dst} after retries.")
+    else:
+        src.replace(dst)
+
+
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
     """
     Writes tags to image metadata (JPEG, WebP, PNG) using pyexiv2.
@@ -205,21 +219,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
                 else:
                     raise e # Re-raise if it's a different pyexiv2 error
 
-            success = True
-            if platform.system() == "Windows":
-                success = False
-                for _ in range(10):
-                    try:
-                        Path(temp_path).replace(image_path)
-                        success = True
-                        break
-                    except OSError:
-                        time.sleep(0.5)
-
-            if not success:
-                raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
-
-            logging.debug(f"Successfully wrote metadata using pyexiv2 for {image_path}")
+            robust_replace(Path(temp_path), Path(image_path))
 
     finally:
         Path(temp_path).unlink(missing_ok=True)
@@ -271,20 +271,8 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
             comment=f"{tags_str} {marker}"
         )
 
-        # Robustly replace the file using Path objects with retries for Windows handle release
-        success = True
-        if platform.system() == "Windows":
-            success = False
-            for _ in range(10):  # Increased retries and sleep duration
-                try:
-                    temp_path.replace(image_path)
-                    success = True
-                    break
-                except OSError:
-                    time.sleep(0.5)
+        robust_replace(Path(temp_path), Path(image_path))
 
-        if not success:
-            raise OSError(f"Failed to replace {temp_path} with {image_path} after retries.")
     finally:
         if temp_path.exists():
             temp_path.unlink()
