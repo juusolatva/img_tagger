@@ -271,7 +271,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
         robust_replace(Path(temp_path), Path(image_path))
 
     finally:
-        temp_path.unlink()
+        temp_path.unlink(missing_ok=True)
 
 
 def tag_image(image_path: str, tags_list: list[str], fmt: Optional[str] = None) -> None:
