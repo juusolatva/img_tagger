@@ -433,12 +433,12 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     # Pattern 2: Bullet points or numbered lists (minimum 6 items expected)
     bullets = re.findall(r'[-•★●]\s*(.+)', raw_output)
     if len(bullets) >= 6:
-        return normalize_tags([b.strip().strip('"').lower() for b in bullets])
+        return normalize_tags([t.strip().strip('"').lower() for b in bullets for t in b.split(",")])
 
     # Pattern 3: Numbered lists like "1. tag" (minimum 6 items expected)
     numbered = re.findall(r'\d+\.\s+(.+)', raw_output)
     if len(numbered) >= 6:
-        return normalize_tags([n.strip().strip('"').lower() for n in numbered])
+        return normalize_tags([t.strip().strip('"').lower() for n in numbered for t in n.split(",")])
 
     # Pattern 4: "Here are the tags:" style intro text extraction
     text_after_intro = re.match(r'.{0,40}?\b(?:tags|keywords)\b\s*[:\-]?\s*(.+)', raw_output, re.IGNORECASE | re.DOTALL)
