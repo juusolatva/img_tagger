@@ -637,10 +637,6 @@ def process_single_image(
                 time.time() - start,
             )
 
-        # Apply 6-12 tag constraint if parsing succeeded but count was under minimum
-        if len(parsed_tags) < 6:
-            logging.warning(f"Model returned only {len(parsed_tags)} tags for {img_path.name}, using all available")
-
         tag_image(str(img_path), parsed_tags, fmt=fmt)
         logging.info(f"Successfully tagged {img_path.name} with {parsed_tags}")
         return (
