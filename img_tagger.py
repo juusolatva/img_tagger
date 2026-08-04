@@ -453,30 +453,6 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     return normalize_tags([tag.strip().strip('"\'').lower() for tag in raw_output.split(",") if tag.strip()])
 
 
-def extract_json_tags(json_string: str) -> List[str]:
-    """Extract tag strings from a JSON array string.
-
-    Args:
-        json_string: A string representing a JSON array of tags.
-
-    Returns:
-        A list of extracted tag strings.
-    """
-
-    # Robustly extract strings from a JSON-like array string
-    # Handles ["tag1", "tag2"], [tag1, tag2], and even messy inputs
-    import re
-    # Find all content inside quotes or standalone words/numbers separated by commas/brackets
-    tags = re.findall(r'"([^"]*)"|([^,\]\s]+)', json_string)
-    # re.findall with multiple groups returns a list of tuples: [('tag1', ''), ('', 'tag2')]
-    cleaned_tags = []
-    for tag_quoted, tag_unquoted in tags:
-        val = tag_quoted if tag_quoted else tag_unquoted
-        if val and val.lower() not in ['and', 'or']:
-            cleaned_tags.append(val.strip().lower())
-    return cleaned_tags
-
-
 def parse_text_tags(text: str) -> List[str]:
     """Parse tags from text that follows intro patterns.
 
