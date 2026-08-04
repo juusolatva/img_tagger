@@ -441,7 +441,7 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
         return normalize_tags([n.strip().strip('"').lower() for n in numbered])
 
     # Pattern 4: "Here are the tags:" style intro text extraction
-    text_after_intro = re.search(r'(?:tags|keywords)\s*[:\-]? (.+)', raw_output, re.IGNORECASE)
+    text_after_intro = re.match(r'.{0,40}?\b(?:tags|keywords)\b\s*[:\-]?\s*(.+)', raw_output, re.IGNORECASE | re.DOTALL)
     if text_after_intro:
         return normalize_tags(parse_text_tags(text_after_intro.group(1)))
 
