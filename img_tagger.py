@@ -116,7 +116,7 @@ def listen_for_quit(stop_event: threading.Event) -> None:
                             break
             finally:
                 getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
-        except (ImportError, AttributeError, Exception) as e:
+        except Exception as e:
             logging.debug(f"Terminal input unavailable ({e}); basic fallback active")
             while not stop_event.is_set():
                 if select.select([sys.stdin], [], [], 0.1)[0]:
