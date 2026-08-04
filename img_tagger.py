@@ -151,17 +151,14 @@ def get_image_format(img_path: Path) -> Optional[str]:
 
 
 def robust_replace(src: Path, dst: Path) -> None:
-    """Atomically replace dst with src, with Windows retry handling for file locks."""
-    if platform.system() == "Windows":
-        for _ in range(10):
-            try:
-                src.replace(dst)
-                return
-            except OSError:
-                time.sleep(0.5)
-        raise OSError(f"Failed to replace {src} with {dst} after retries.")
-    else:
-        src.replace(dst)
+    """Atomically replace dst with src, retrying on transient OSErrors like lingering file locks on Windows)."""
+    for _ in range(10):
+        try:
+            src.replace(dst)
+            return
+        except OSError:
+            time.sleep(0.5)
+    raise OSError(f"Failed to replace {src} with {dst} after retries.")
 
 
 def write_metadata(image_path: str, tags_list: list[str]) -> None:
