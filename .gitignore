@@ -3,3 +3,4 @@
 .vscode/
 test_images/
 __pycache__/
+.pytest_cache/

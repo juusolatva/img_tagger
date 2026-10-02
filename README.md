@@ -35,5 +35,10 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 - Allows a maximum of 4 workers which is the default limit for both **ollama** and **LM Studio**
 - In case you need to you can clear all the tags in a folder using the *clear_tags.py* script
 
+### Running tests
+*pip install -r requirements-dev.txt* and then *python -m pytest*. The default tests run offline (no model server needed).
+
+To check tagging quality against real images, put them in a *test_images/* folder and run *python -m pytest -m integration --run-integration -s* with ollama or LM Studio running. Use *--tagger-backend*, *--tagger-host*, *--tagger-model* and *--images-dir* to change the defaults. The images are copied to a temporary folder so the originals are not modified.
+
 ### Known issues
 - Animated **WebPs** are not properly supported

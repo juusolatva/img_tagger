@@ -6,12 +6,14 @@ This file provides guidance to agents when working with code in this repository.
 - `img_tagger.py` — main CLI: tags JPEG/WebP/PNG/GIF files via a local vision-language model (Ollama or LM Studio), writing tags into image metadata.
 - `clear_tags.py` — standalone helper that strips tags/metadata back out (used to reset images for testing).
 - `prompt.txt` — externalized LLM prompt; takes precedence over the `DEFAULT_PROMPT` fallback hardcoded in `img_tagger.py`.
-- Flat repo layout: no package structure, no `pyproject.toml`/`setup.py`, no automated tests, no CI.
+- Flat repo layout: no package structure, no `pyproject.toml`/`setup.py`, no CI. Tests live in `tests/` (pytest, configured by `pytest.ini`).
 - Requires **Python 3.10+** (uses modern type annotations like `str | None` and `list[str]`).
 
 ## Build/Lint/Test Commands
-No automated lint or test tooling is configured yet.
-- Dependencies: `pip install -r requirements.txt` (or `pip3 install -r requirements.txt`)
+No lint tooling is configured.
+- Dependencies: `pip install -r requirements.txt` (or `pip3 install -r requirements.txt`); test deps: `pip install -r requirements-dev.txt`
+- Run tests: `python3 -m pytest` (offline: images generated on the fly, model backends faked; ~10s)
+- Integration tests (opt-in, need a live backend + images in git-ignored `test_images/`; copies images to a temp dir, prints tags for manual quality review): `python3 -m pytest -m integration --run-integration -s [--tagger-backend lm-studio] [--tagger-host URL] [--tagger-model M] [--images-dir DIR]`
 - Run tagger (Ollama, default): `python3 img_tagger.py <directory>`
 - Run tagger (LM Studio): `python3 img_tagger.py <directory> --backend lm-studio`
 - Recursive, custom model/workers: `python3 img_tagger.py <directory> -r --model <model> --workers 4`
@@ -63,7 +65,8 @@ If `pyexiv2` raises a `RuntimeError` containing `"IFD"` or `"corrupt"`:
 *Caution*: Pillow re-saving can re-encode/compress lossy images (JPEG/WebP).
 
 ## Known Limitations & Maintenance Notes
-- **No automated test suite or CI**: Verify changes manually against test images across formats (.jpg, .png, .webp, .gif) and corrupt samples.
+- **Tests**: `python3 -m pytest` covers parsing, metadata round-trips for every format, GIF frame/duration preservation, auto-healing (simulated), temp-file cleanup, fake-backend pipeline, quit listener and CLI. No CI. Tagging *quality* still needs a manual run with `--run-integration` against real images.
+- **Known bugs pinned as strict `xfail`** (fixing one makes it XPASS → remove the marker): parser misses newline-only lists, hyphenated tags in numbered lists, the word "tags" early in a plain list, ≤2-char tags after a `Tags:` intro, `<think>` blocks; `clear_tags.py` cannot clear XMP on WebP (pyexiv2 `clear_xmp()` no-op); `listen_for_quit()` misses a `q` arriving in the same read burst as another key.
 - **Silent logging by default**: Without `--log`, `DEBUG` logs (including pyexiv2 read failures and fallback activations) do not display. Failures may look like silent no-ops.
 - **No request timeouts**: Ollama and LM Studio HTTP clients lack request timeouts; hung local model servers can block worker threads indefinitely.
 - **Duplicated utility logic**: `robust_replace()`, Pillow auto-healing fallback, and GIF streaming generator logic are duplicated between `img_tagger.py` and `clear_tags.py`. Keep both in sync when modifying file handling.
