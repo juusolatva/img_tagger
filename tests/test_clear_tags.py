@@ -23,21 +23,7 @@ def tag(path: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    "ext",
-    [
-        "jpg",
-        "jpeg",
-        "png",
-        pytest.param(
-            "webp",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="pyexiv2 clear_xmp() is a no-op on WebP, so the marker survives clearing",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("ext", ["jpg", "jpeg", "png", "webp"])
 def test_clears_static_image_tags(tmp_path, ext):
     path = tag(make_image(tmp_path / f"a.{ext}"))
 

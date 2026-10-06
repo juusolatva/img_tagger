@@ -140,22 +140,27 @@ def _cbreak_stdin() -> Generator[None, None, None]:
 
 def _wait_for_quit_posix(stop_event: threading.Event, idle_sleep: float = 0.0) -> None:
     """
-    Reads stdin one character at a time until 'q' is pressed (sets stop_event),
-    stdin reaches EOF, or stop_event is set elsewhere.
+    Reads stdin until 'q' is pressed (sets stop_event), stdin reaches EOF,
+    or stop_event is set elsewhere.
+
+    Reads the raw file descriptor rather than sys.stdin: sys.stdin.read(1) pulls every
+    pending byte into Python's buffer, so select() would no longer see them and a 'q'
+    arriving in the same burst as another key (paste, key repeat) would be missed.
 
     Args:
         stop_event: Event to set when 'q' is pressed.
         idle_sleep: Extra delay per loop iteration, on top of the select() timeout.
     """
 
+    fd = sys.stdin.fileno()
     while not stop_event.is_set():
         # select waits up to 0.1 seconds for input
-        if select.select([sys.stdin], [], [], 0.1)[0]:
-            char = sys.stdin.read(1)
-            if char == "":  # EOF reached (detached terminal / closed stdin)
+        if select.select([fd], [], [], 0.1)[0]:
+            data = os.read(fd, 1024)
+            if not data:  # EOF reached (detached terminal / closed stdin)
                 logging.debug("Stdin EOF reached; exiting Q monitor thread.")
                 return
-            if char.lower() == "q":
+            if b"q" in data.lower():
                 stop_event.set()
                 return
         time.sleep(idle_sleep)

@@ -331,11 +331,6 @@ class TestListenForQuit:
         thread.join(timeout=3)
         assert not thread.is_alive()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="read(1) drains the whole OS buffer into Python's text buffer, so a 'q' arriving "
-        "in the same burst as another key (paste, key repeat) is never seen by select()",
-    )
     def test_q_in_same_burst_as_other_key(self, listener):
         event, _, writer = listener
         writer.write("xq")
@@ -400,6 +395,14 @@ class TestListenForQuitCbreak:
         assert event.wait(timeout=3)
         thread.join(timeout=3)
         assert not thread.is_alive()
+        assert attrs() == original
+
+    def test_q_in_same_burst_as_other_key(self, tty_listener):
+        event, thread, master_fd, attrs, in_cbreak, original = tty_listener
+        assert self.wait_until(in_cbreak)
+        os.write(master_fd, b"xq")  # e.g. paste or key repeat: both bytes in one read
+        assert event.wait(timeout=3)
+        thread.join(timeout=3)
         assert attrs() == original
 
     def test_restores_terminal_when_stopped_externally(self, tty_listener):

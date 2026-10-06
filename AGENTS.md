@@ -39,14 +39,14 @@ No lint tooling is configured.
   4. Intro text: `tags`/`keywords` within the first ~40 chars, followed by a colon later on the same line (`Here are the tags for this image:`) or a dash right after (`Keywords -`). Parsed via `parse_text_tags()`, which drops common English stop words but keeps short tags like `3d`/`ui`.
   5. Comma- and/or newline-separated list fallback.
 - **Concurrency & Locks**: Images are processed in parallel via `ThreadPoolExecutor`. `pyexiv2` is not thread-safe: all `pyexiv2` reads (`is_already_processed()`) and writes (`write_metadata()`) are serialized through `metadata_lock = threading.Lock()`. Model API calls and Pillow operations (GIF read/write, format verification) are intentionally outside the lock to preserve concurrency.
-- **Graceful quit**: Press `Q` during execution to trigger graceful shutdown. Monitored by a daemon thread (`listen_for_quit()`) using `msvcrt` on Windows or `termios`/`tty`/`select` on POSIX (with EOF detection for detached terminals). In-flight requests finish, but queued/unstarted tasks are marked `CANCELLED`.
+- **Graceful quit**: Press `Q` during execution to trigger graceful shutdown. Monitored by a daemon thread (`listen_for_quit()`) using `msvcrt` on Windows or `termios`/`tty`/`select` on POSIX (with EOF detection for detached terminals). The POSIX loop reads the raw fd with `os.read()`, not `sys.stdin.read()`, so Python's buffer can't hide pending keys from `select()`. In-flight requests finish, but queued/unstarted tasks are marked `CANCELLED`.
 
 ## Metadata Schema
 - **JPEG / WebP / PNG**:
   - EXIF: `Exif.Photo.UserComment` contains `"<tag1>, <tag2>, ... [PROCESSED BY AI]"`.
   - XMP: `Xmp.dc.subject` contains the raw tag list (`['tag1', 'tag2', ...]`); `Xmp.dc.description` contains `"Tags: <tag1>, <tag2>, ... | [PROCESSED BY AI]"`.
 - **GIF**: Comment field only (no EXIF/XMP support). Stored as `"<tag1>, <tag2>, ... [PROCESSED BY AI]"`.
-- **Metadata Clearing (`clear_tags.py`)**: Strips EXIF, XMP, and IPTC (`img.clear_iptc()`) for standard images, and empties `comment=""` for GIFs.
+- **Metadata Clearing (`clear_tags.py`)**: Strips EXIF, XMP, and IPTC (`img.clear_iptc()`) for standard images, and empties `comment=""` for GIFs. XMP needs `clear_xmp()` *and* `modify_raw_xmp("")`: on WebP, `clear_xmp()` alone leaves the XMP chunk in the saved file.
 
 ## File Replacement & Atomic Safety
 - **Temp file placement**: Temporary files (`tempfile.mkstemp`) MUST always be created in the target image's directory (`dir=Path(image_path).parent`). This ensures replacements remain atomic on the same filesystem/mount point without cross-device link errors.
@@ -66,7 +66,7 @@ If `pyexiv2` raises a `RuntimeError` containing `"IFD"` or `"corrupt"`:
 
 ## Known Limitations & Maintenance Notes
 - **Tests**: `python3 -m pytest` covers parsing, metadata round-trips for every format, GIF frame/duration preservation, auto-healing (simulated), temp-file cleanup, fake-backend pipeline, quit listener and CLI. No CI. Tagging *quality* still needs a manual run with `--run-integration` against real images.
-- **Known bugs pinned as strict `xfail`** (fixing one makes it XPASS → remove the marker): `clear_tags.py` cannot clear XMP on WebP (pyexiv2 `clear_xmp()` no-op); `listen_for_quit()` misses a `q` arriving in the same read burst as another key.
+- **Known bugs**: none currently pinned. When adding one, pin it as a strict `xfail` (fixing it makes it XPASS → remove the marker).
 - **Silent logging by default**: Without `--log`, `DEBUG` logs (including pyexiv2 read failures and fallback activations) do not display. Failures may look like silent no-ops.
 - **No request timeouts**: Ollama and LM Studio HTTP clients lack request timeouts; hung local model servers can block worker threads indefinitely.
 - **Duplicated utility logic**: `robust_replace()`, Pillow auto-healing fallback, and GIF streaming generator logic are duplicated between `img_tagger.py` and `clear_tags.py`. Keep both in sync when modifying file handling.

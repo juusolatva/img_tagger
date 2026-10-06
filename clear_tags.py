@@ -60,6 +60,9 @@ def _clear_standard(image_path, temp_path):
         with pyexiv2.Image(str(temp_path)) as img:
             img.clear_exif()
             img.clear_xmp()
+            # On WebP, clear_xmp() alone leaves the XMP chunk in the saved file;
+            # also emptying the raw packet removes it (harmless for JPEG/PNG).
+            img.modify_raw_xmp("")
             img.clear_iptc()
 
         robust_replace(temp_path, image_path)
