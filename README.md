@@ -27,6 +27,33 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 ---
 
 
+## Usage
+Just give it the folder with your images:
+
+*python img_tagger.py path/to/images*
+
+### Arguments
+- *directory* - the folder with your images
+- *-r* or *--recursive* - go through the subfolders too
+- *--backend* - *ollama* (default) or *lm-studio*
+- *--host* - address of the model server if it's not running on the default local address
+- *--model* - the model to use (*qwen3-vl:8b* by default)
+- *--workers* - how many images to process at the same time, from 1 to 4 (1 by default)
+- *--log* - save a log file for troubleshooting, e.g. *--log logs/run.log*
+
+### Examples
+Tag a folder and all of its subfolders with ollama:
+
+*python img_tagger.py ~/Pictures/memes -r*
+
+Use LM Studio with 4 workers and save a log:
+
+*python img_tagger.py ~/Pictures/memes --backend lm-studio --workers 4 --log run.log*
+
+
+---
+
+
 ### Notes
 - Run *img_tagger.py -h* or *img_tagger.py --help* to see the arguments and options
 - Press `Q` to quit and then wait for it to finish all the work in progress
@@ -41,4 +68,4 @@ You must have [Python](https://www.python.org/downloads/) and either **[ollama](
 To check tagging quality against real images, put them in a *test_images/* folder and run *python -m pytest -m integration --run-integration -s* with ollama or LM Studio running. Use *--tagger-backend*, *--tagger-host*, *--tagger-model* and *--images-dir* to change the defaults. The images are copied to a temporary folder so the originals are not modified.
 
 ### Known issues
-- Animated **WebPs** are not properly supported
+- Animated **WebPs** keep their animation but the model might only see the first frame

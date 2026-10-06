@@ -59,7 +59,7 @@ No lint tooling is configured in the repo. The maintainer runs SonarQube Cloud (
 - GIF tagging re-encodes the whole file through Pillow, so anything Pillow doesn't round-trip is lost: e.g. custom application extensions (`21 FF` blocks other than looping) are dropped.
 
 ## Animated WebP
-README lists animated WebP as not properly supported. Current state:
+README's known issue: the model might only see the first frame. Current state:
 - Normal tagging/clearing goes through pyexiv2, which edits metadata in place: frames, per-frame durations and loop count survive.
 - Auto-heal keeps the animation too: `_sanitize_with_pillow()` re-saves animated images (WebP, APNG) with `save_all=True` plus per-frame durations and loop.
 - Untested what the model sees (probably only the first frame); `get_tags_lm_studio()` sends the whole file as `image/webp`.
