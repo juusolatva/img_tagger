@@ -6,6 +6,7 @@ import threading
 import time
 
 import pytest
+
 from conftest import (
     MARKER,
     SAMPLE_TAGS,
@@ -325,3 +326,71 @@ class TestListenForQuit:
         writer.write("xq")
         writer.flush()
         assert event.wait(timeout=1)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+class TestListenForQuitCbreak:
+    """The cbreak path only runs on a real terminal, so drive it through a pty."""
+
+    @pytest.fixture
+    def tty_listener(self, monkeypatch):
+        """Start listen_for_quit() with a pty as stdin.
+
+        Yields (event, thread, master_fd, attrs, in_cbreak, original_attrs), where
+        attrs() returns the pty's current termios settings.
+        """
+        import termios  # POSIX only
+
+        master_fd, slave_fd = os.openpty()
+
+        def attrs():
+            return termios.tcgetattr(slave_fd)
+
+        def in_cbreak():
+            return not attrs()[3] & termios.ICANON
+
+        original = attrs()
+        reader = os.fdopen(slave_fd, "r")
+        monkeypatch.setattr(sys, "stdin", reader)
+        event = threading.Event()
+        thread = threading.Thread(target=img_tagger.listen_for_quit, args=(event,), daemon=True)
+        thread.start()
+        yield event, thread, master_fd, attrs, in_cbreak, original
+        event.set()
+        thread.join(timeout=3)
+        reader.close()
+        os.close(master_fd)
+
+    @staticmethod
+    def wait_until(predicate, timeout=3.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_switches_terminal_to_cbreak(self, tty_listener):
+        *_, in_cbreak, _ = tty_listener
+        assert self.wait_until(in_cbreak)
+
+    @pytest.mark.parametrize("key", ["q", "Q"])
+    def test_q_sets_stop_event_and_restores_terminal(self, tty_listener, key):
+        event, thread, master_fd, attrs, in_cbreak, original = tty_listener
+        assert self.wait_until(in_cbreak)
+        # No newline: in cbreak mode a single key must be enough.
+        os.write(master_fd, b"x")
+        time.sleep(0.15)
+        os.write(master_fd, key.encode())
+        assert event.wait(timeout=3)
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert attrs() == original
+
+    def test_restores_terminal_when_stopped_externally(self, tty_listener):
+        event, thread, _, attrs, in_cbreak, original = tty_listener
+        assert self.wait_until(in_cbreak)
+        event.set()
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert attrs() == original

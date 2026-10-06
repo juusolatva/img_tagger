@@ -1,5 +1,6 @@
 import argparse
 import base64
+import contextlib
 import os
 import platform
 import re
@@ -15,6 +16,7 @@ import pyexiv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from collections.abc import Generator
 from typing import Any, List, Optional
 from PIL import Image, ImageSequence, PngImagePlugin
 
@@ -88,48 +90,74 @@ def listen_for_quit(stop_event: threading.Event) -> None:
     """
 
     if platform.system() == "Windows" and msvcrt is not None:
-        while not stop_event.is_set():
-            if msvcrt.kbhit():
-                try:
-                    key = msvcrt.getch().decode("utf-8").lower()
-                    if key == "q":
-                        stop_event.set()
-                        break
-                except Exception:
-                    pass
-            time.sleep(0.05)  # Prevents a 100% CPU hot-spin on Windows when idle
-    else:
-        try:
-            if termios is None or tty is None:
-                raise ImportError("termios/tty not available")
+        _wait_for_quit_windows(stop_event)
+        return
 
-            fd = sys.stdin.fileno()
-            old_settings = getattr(termios, "tcgetattr")(fd)
-            try:
-                getattr(tty, "setcbreak")(fd)
-                while not stop_event.is_set():
-                    # select waits up to 0.1 seconds for input
-                    if select.select([sys.stdin], [], [], 0.1)[0]:
-                        char = sys.stdin.read(1)
-                        if char == "":  # EOF reached (detached terminal / closed stdin)
-                            logging.debug("Stdin EOF reached; exiting Q monitor thread.")
-                            break
-                        if char.lower() == "q":
-                            stop_event.set()
-                            break
-            finally:
-                getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
-        except Exception as e:
-            logging.debug(f"Terminal input unavailable ({e}); basic fallback active")
-            while not stop_event.is_set():
-                if select.select([sys.stdin], [], [], 0.1)[0]:
-                    char = sys.stdin.read(1)
-                    if char == "":
-                        break
-                    if char.lower() == "q":
-                        stop_event.set()
-                        break
-                time.sleep(0.1)  # Prevents hot-spinning in the fallback loop
+    try:
+        with _cbreak_stdin():
+            _wait_for_quit_posix(stop_event)
+    except Exception as e:
+        logging.debug(f"Terminal input unavailable ({e}); basic fallback active")
+        # The extra sleep prevents hot-spinning on endless non-tty input (e.g. `yes |`)
+        _wait_for_quit_posix(stop_event, idle_sleep=0.1)
+
+
+def _wait_for_quit_windows(stop_event: threading.Event) -> None:
+    """Polls the Windows console for a 'q' keypress until stop_event is set."""
+
+    if msvcrt is None:
+        return
+    while not stop_event.is_set():
+        if msvcrt.kbhit() and msvcrt.getch().decode("utf-8", errors="ignore").lower() == "q":
+            stop_event.set()
+            return
+        time.sleep(0.05)  # Prevents a 100% CPU hot-spin on Windows when idle
+
+
+@contextlib.contextmanager
+def _cbreak_stdin() -> Generator[None, None, None]:
+    """
+    Puts the stdin terminal into cbreak mode (keys arrive without Enter) and
+    restores the previous settings on exit.
+
+    Raises:
+        ImportError: If termios/tty are unavailable.
+        termios.error: If stdin is not a terminal.
+    """
+
+    if termios is None or tty is None:
+        raise ImportError("termios/tty not available")
+
+    fd = sys.stdin.fileno()
+    old_settings = getattr(termios, "tcgetattr")(fd)
+    try:
+        getattr(tty, "setcbreak")(fd)
+        yield
+    finally:
+        getattr(termios, "tcsetattr")(fd, getattr(termios, "TCSADRAIN"), old_settings)
+
+
+def _wait_for_quit_posix(stop_event: threading.Event, idle_sleep: float = 0.0) -> None:
+    """
+    Reads stdin one character at a time until 'q' is pressed (sets stop_event),
+    stdin reaches EOF, or stop_event is set elsewhere.
+
+    Args:
+        stop_event: Event to set when 'q' is pressed.
+        idle_sleep: Extra delay per loop iteration, on top of the select() timeout.
+    """
+
+    while not stop_event.is_set():
+        # select waits up to 0.1 seconds for input
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            char = sys.stdin.read(1)
+            if char == "":  # EOF reached (detached terminal / closed stdin)
+                logging.debug("Stdin EOF reached; exiting Q monitor thread.")
+                return
+            if char.lower() == "q":
+                stop_event.set()
+                return
+        time.sleep(idle_sleep)
 
 
 def get_image_format(img_path: Path) -> Optional[str]:
