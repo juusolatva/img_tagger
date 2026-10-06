@@ -105,6 +105,21 @@ class TestParseModelOutput:
     def test_insufficient_output_returns_none(self, raw):
         assert parse_model_output(raw) is None
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param("1" * 5000, id="digits-over-int-limit"),
+            pytest.param("Sure: [" + "1" * 5000 + "] ok", id="bracketed-digits-over-int-limit"),
+            pytest.param("[" * 100_000 + "]", id="deeply-nested-brackets"),
+        ],
+    )
+    def test_degenerate_json_does_not_raise(self, raw):
+        assert parse_model_output(raw) is None
+
+    def test_long_digit_run_falls_through_to_text_parsers(self):
+        raw = "1" * 5000 + ", photo, sunset, beach, ocean, sky, clouds"
+        assert parse_model_output(raw) == ["1" * 5000] + SIX
+
 
 # --- Known parser weaknesses ----------------------------------------------
 # These document real model-output styles that are currently mis-parsed.

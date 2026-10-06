@@ -40,6 +40,9 @@ except ImportError:
 
 metadata_lock = threading.Lock()
 
+PROCESSED_MARKER = "[PROCESSED BY AI]"
+DEFAULT_MIME_TYPE = "image/jpeg"
+
 DEFAULT_PROMPT = (
                 "Analyze this image, which could be an internet meme, screenshot, artwork, or photograph. "
                 "Extract 6 to 12 highly relevant keywords and return ONLY a comma-separated list of tags."
@@ -174,7 +177,7 @@ def write_metadata(image_path: str, tags_list: list[str]) -> None:
         tags_list: A list of strings representing the tags to embed.
     """
 
-    marker = "[PROCESSED BY AI]"
+    marker = PROCESSED_MARKER
     tags_str = ", ".join(tags_list)
 
     fd, temp_path = tempfile.mkstemp(dir=Path(image_path).parent, suffix=".tmp")
@@ -231,7 +234,7 @@ def write_gif_tags(image_path: str, tags_list: list[str]) -> None:
         tags_list: A list of strings representing the tags to embed.
     """
 
-    marker = "[PROCESSED BY AI]"
+    marker = PROCESSED_MARKER
     tags_str = ", ".join(tags_list)
 
     with Image.open(image_path) as img:
@@ -355,17 +358,14 @@ def get_tags_lm_studio(client: Any, model: str, img_path: Path, prompt: str) -> 
     fmt = get_image_format(img_path)
     if fmt is None:
         logging.error(f"Pillow could not determine the format for {img_path}")
-        mime_type = "image/jpeg"
-    else:
-        fmt_lower = fmt.lower()
-        mime_map = {
-            "jpeg": "image/jpeg",
-            "jpg": "image/jpeg",
-            "png": "image/png",
-            "webp": "image/webp",
-            "gif": "image/gif"
-        }
-        mime_type = mime_map.get(fmt_lower, "image/jpeg")
+    mime_map = {
+        "jpeg": DEFAULT_MIME_TYPE,
+        "jpg": DEFAULT_MIME_TYPE,
+        "png": "image/png",
+        "webp": "image/webp",
+        "gif": "image/gif"
+    }
+    mime_type = mime_map.get((fmt or "").lower(), DEFAULT_MIME_TYPE)
 
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
@@ -411,7 +411,7 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     # Fast path: whole output is JSON
     try:
         parsed = json.loads(raw_output)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         parsed = None
 
     # Fallback: find first bracketed segment and parse that
@@ -422,7 +422,7 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
             candidate = raw_output[start:end + 1]
             try:
                 parsed = json.loads(candidate)
-            except json.JSONDecodeError:
+            except (ValueError, RecursionError):
                 parsed = None
 
     if isinstance(parsed, list):
@@ -436,7 +436,7 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
         return normalize_tags([t.strip().strip('"').lower() for b in bullets for t in b.split(",")])
 
     # Pattern 3: Numbered lists like "1. tag" (minimum 6 items expected)
-    numbered = re.findall(r'\d+\.\s+(.+)', raw_output)
+    numbered = re.findall(r'(?<!\d)\d+\.\s+(.+)', raw_output)
     if len(numbered) >= 6:
         return normalize_tags([t.strip().strip('"').lower() for n in numbered for t in n.split(",")])
 
@@ -513,7 +513,7 @@ def is_already_processed(img_path: Path) -> bool:
         True if the marker is found in metadata or comments, False otherwise.
     """
 
-    marker = "[PROCESSED BY AI]"
+    marker = PROCESSED_MARKER
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
 
@@ -643,7 +643,7 @@ def process_single_image(
         )
 
     except Exception as e:
-        logging.error(f"Error processing {img_path.name}: {e}", exc_info=True)
+        logging.exception(f"Error processing {img_path.name}: {e}")
         return "FAILED", img_path.name, str(e), time.time() - start
 
 
@@ -696,7 +696,7 @@ def process_directory(
         try:
             prompt = prompt_file.read_text(encoding="utf-8").strip()
         except Exception as e:
-            logging.error(f"Failed to read prompt.txt: {e}")
+            logging.exception(f"Failed to read prompt.txt: {e}")
             sys.exit(1)
 
     if backend == "ollama":
