@@ -15,6 +15,7 @@ import tempfile
 import pyexiv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 from collections.abc import Generator
 from typing import Any, List, Optional
@@ -678,6 +679,154 @@ def process_single_image(
         return "FAILED", img_path.name, str(e), time.time() - start
 
 
+@dataclass
+class _RunStats:
+    """Running totals for one process_directory() call."""
+
+    success: int = 0
+    skipped: int = 0
+    failed: int = 0
+    success_duration: float = 0.0
+    failed_log: list[tuple[str, str]] = field(default_factory=list)
+
+    def record(self, status: str, name: str, message: str, duration: float) -> None:
+        """Prints one process_single_image() result and adds it to the totals."""
+
+        if status == "SUCCESS":
+            tqdm.write(f"  [✓] {name} -> {message}")
+            self.success += 1
+            self.success_duration += duration
+        elif status == "SKIPPED":
+            tqdm.write(f"  [-] {name} -> {message}")
+            self.skipped += 1
+        elif status == "CANCELLED":
+            # Do nothing for cancelled tasks to keep the console clean
+            pass
+        else:  # FAILED
+            tqdm.write(f"  [!] {name} -> {message}")
+            self.failed += 1
+            self.failed_log.append((name, message))
+
+
+def _find_images(directory: str, recursive: bool) -> list[Path]:
+    """Lists files in directory (optionally recursive) with a supported image extension."""
+
+    base_path = Path(directory)
+    files = base_path.rglob("*") if recursive else base_path.iterdir()
+    # We keep a broad filter for performance, but the final check is done in process_single_image via get_image_format
+    valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    return [f for f in files if f.is_file() and f.suffix.lower() in valid_extensions]
+
+
+def _load_prompt() -> str:
+    """
+    Loads prompt.txt from the script directory, falling back to DEFAULT_PROMPT
+    if it doesn't exist. Exits the program if it exists but cannot be read.
+    """
+
+    prompt_file = Path(__file__).parent / "prompt.txt"
+    if not prompt_file.exists():
+        logging.warning(f"prompt.txt not found at {prompt_file}; using default")
+        print(f"Warning: Could not read prompt.txt from {prompt_file}. Falling back to default.")
+        return DEFAULT_PROMPT
+
+    try:
+        return prompt_file.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        logging.exception(f"Failed to read prompt.txt: {e}")
+        sys.exit(1)
+
+
+def _create_client(backend: str, host: str) -> Any:
+    """
+    Builds the model client for the chosen backend.
+
+    Returns:
+        The client, or None (after printing an error) if its library is not installed.
+    """
+
+    if backend == "ollama":
+        if OllamaClient is None:
+            print("Error: 'ollama' library not found. Please install it using 'pip install ollama'.")
+            return None
+        return OllamaClient(host=host)
+
+    if OpenAI is None:
+        print("Error: 'openai' library not found. Please install it using 'pip install openai'.")
+        return None
+    return OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
+
+
+def _run_tasks(
+    image_files: list[Path],
+    client: Any,
+    backend: str,
+    model: str,
+    prompt: str,
+    max_workers: int,
+    stop_event: threading.Event
+    ) -> _RunStats:
+    """Tags image_files concurrently with a progress bar and returns the totals."""
+
+    stats = _RunStats()
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_image = {
+            executor.submit(
+                process_single_image,
+                img_path,
+                client,
+                backend,
+                model,
+                prompt,
+                stop_event,
+            ): img_path
+            for img_path in image_files
+        }
+
+        stopped_notified = False
+        for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
+            if stop_event.is_set() and not stopped_notified:
+                tqdm.write(
+                    "  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
+                )
+                stopped_notified = True
+
+            try:
+                stats.record(*future.result())
+            except Exception as e:
+                img_path = future_to_image[future]
+                tqdm.write(f"  [!] {img_path} -> Unexpected Error: {e}")
+                stats.failed += 1
+
+    return stats
+
+
+def _print_report(stats: _RunStats, total_seconds: float) -> None:
+    """Prints the end-of-run summary."""
+
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    print("\n" + "=" * 50)
+    print("                PROCESSING REPORT")
+    print("=" * 50)
+    print(f" Processed images: {stats.success}")
+    print(f" Skipped images: {stats.skipped}")
+    print(f" Failed images: {stats.failed}")
+    print(f" Total time elapsed: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
+
+    if stats.success > 0:
+        avg_latency = stats.success_duration / stats.success
+        print(f" Average processing time: {avg_latency:.2f} seconds")
+
+    if stats.failed_log:
+        print("\n--- Failed files details ---")
+        for filename, error_msg in stats.failed_log:
+            print(f" * {filename} -> {error_msg}")
+
+    print("=" * 50)
+
+
 def process_directory(
     directory: str,
     recursive: bool,
@@ -702,14 +851,7 @@ def process_directory(
         max_workers: The maximum number of concurrent threads (limited to 4).
     """
 
-    base_path = Path(directory)
-    files = base_path.rglob("*") if recursive else base_path.iterdir()
-    # We keep a broad filter for performance, but the final check is done in process_single_image via get_image_format
-    valid_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    image_files = [
-        f for f in files if f.is_file() and f.suffix.lower() in valid_extensions
-    ]
-
+    image_files = _find_images(directory, recursive)
     if not image_files:
         print(f"No valid images found in '{directory}'.")
         return
@@ -717,36 +859,11 @@ def process_directory(
     print(f"Initialized backend: {backend} | Target: {host}")
     print(f"Found {len(image_files)} images to process. Starting...\n")
 
-    # Load prompt from file
-    prompt_file = Path(__file__).parent / "prompt.txt"
-    if not prompt_file.exists():
-        logging.warning(f"prompt.txt not found at {prompt_file}; using default")
-        print(f"Warning: Could not read prompt.txt from {prompt_file}. Falling back to default.")
-        prompt = DEFAULT_PROMPT
-    else:
-        try:
-            prompt = prompt_file.read_text(encoding="utf-8").strip()
-        except Exception as e:
-            logging.exception(f"Failed to read prompt.txt: {e}")
-            sys.exit(1)
+    prompt = _load_prompt()
+    client = _create_client(backend, host)
+    if client is None:
+        return
 
-    if backend == "ollama":
-        if OllamaClient is None:
-            print("Error: 'ollama' library not found. Please install it using 'pip install ollama'.")
-            return
-        client = OllamaClient(host=host)
-    else:
-        if OpenAI is None:
-            print("Error: 'openai' library not found. Please install it using 'pip install openai'.")
-            return
-        client = OpenAI(base_url=f"{host}/v1", api_key="lm-studio")
-
-    # Initialize metrics
-    success_count = 0
-    fail_count = 0
-    skip_count = 0
-    total_success_duration = 0.0
-    failed_log = []
     start_time = time.time()
 
     # Concurrency and quitting
@@ -759,50 +876,7 @@ def process_directory(
     try:
         print(f"Starting concurrent processing (max_workers={max_workers}).")
         print("Press 'q' at any time to stop and see the current report.\n")
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_image = {
-                executor.submit(
-                    process_single_image,
-                    img_path,
-                    client,
-                    backend,
-                    model,
-                    prompt,
-                    stop_event,
-                ): img_path
-                for img_path in image_files
-            }
-
-            stopped_notified = False
-            for future in tqdm(as_completed(future_to_image), total=len(image_files), desc="Processing images"):
-                if stop_event.is_set() and not stopped_notified:
-                    tqdm.write(
-                        "  [!] Stop signal received (Q pressed). Finishing currently running tasks..."
-                    )
-                    stopped_notified = True
-
-                try:
-                    status, name, message, duration = future.result()
-                    if status == "SUCCESS":
-                        tqdm.write(f"  [✓] {name} -> {message}")
-                        success_count += 1
-                        total_success_duration += duration
-                    elif status == "SKIPPED":
-                        tqdm.write(f"  [-] {name} -> {message}")
-                        skip_count += 1
-                    elif status == "CANCELLED":
-                        # Do nothing for cancelled tasks to keep the console clean
-                        pass
-                    else:  # FAILED
-                        tqdm.write(f"  [!] {name} -> {message}")
-                        fail_count += 1
-                        failed_log.append((name, message))
-                except Exception as e:
-                    img_path = future_to_image[future]
-                    tqdm.write(f"  [!] {img_path} -> Unexpected Error: {e}")
-                    fail_count += 1
-
+        stats = _run_tasks(image_files, client, backend, model, prompt, max_workers, stop_event)
     except Exception as e:
         print(f"An unexpected error occurred during processing: {e}")
         raise
@@ -810,31 +884,7 @@ def process_directory(
         if quit_thread.is_alive():
             quit_thread.join(timeout=2)
 
-    # Calculate metrics
-    end_time = time.time()
-    total_seconds = end_time - start_time
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    # Report summary
-    print("\n" + "=" * 50)
-    print("                PROCESSING REPORT")
-    print("=" * 50)
-    print(f" Processed images: {success_count}")
-    print(f" Skipped images: {skip_count}")
-    print(f" Failed images: {fail_count}")
-    print(f" Total time elapsed: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
-
-    if success_count > 0:
-        avg_latency = total_success_duration / success_count
-        print(f" Average processing time: {avg_latency:.2f} seconds")
-
-    if failed_log:
-        print("\n--- Failed files details ---")
-        for filename, error_msg in failed_log:
-            print(f" * {filename} -> {error_msg}")
-
-    print("=" * 50)
+    _print_report(stats, time.time() - start_time)
 
 
 if __name__ == "__main__":

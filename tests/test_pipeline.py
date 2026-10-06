@@ -226,6 +226,21 @@ class TestProcessDirectory:
 
         assert fake_ollama.instances[0].calls[0]["messages"][0]["content"] == "my custom prompt"
 
+    def test_unreadable_prompt_file_exits(self, tmp_path, fake_ollama, monkeypatch, capsys):
+        script_dir = tmp_path / "script"
+        (script_dir / "prompt.txt").mkdir(parents=True)  # exists() but read_text() fails
+        monkeypatch.setattr(img_tagger, "__file__", str(script_dir / "img_tagger.py"))
+        images = tmp_path / "images"
+        images.mkdir()
+        make_image(images / "a.jpg")
+
+        with pytest.raises(SystemExit) as exc:
+            self._run(images)
+
+        assert exc.value.code == 1
+        assert fake_ollama.instances == []
+        assert not img_tagger.is_already_processed(images / "a.jpg")
+
     def test_empty_directory(self, tmp_path, fake_ollama, capsys):
         (tmp_path / "readme.txt").write_text("hi")
         self._run(tmp_path)
