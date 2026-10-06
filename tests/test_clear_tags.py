@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 from conftest import (
     SAMPLE_TAGS,
+    animation_info,
     gif_info,
     leftover_temp_files,
+    make_animated,
     make_gif,
     make_image,
     read_metadata,
@@ -97,6 +99,29 @@ def test_auto_heals_corrupt_metadata_via_pillow(tmp_path, monkeypatch, capsys, e
     assert "Sanitized and cleared (Pillow)" in capsys.readouterr().out
     with Image.open(path) as img:
         assert img.format == "JPEG"
+    assert leftover_temp_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("ext", ["webp", "png"])
+def test_clearing_keeps_animation(tmp_path, ext):
+    path = tag(make_animated(tmp_path / f"anim.{ext}", durations=[40, 250, 90], loop=3))
+    clear_tags.clear_tags(path)
+    assert animation_info(path) == {"n_frames": 3, "durations": [40, 250, 90], "loop": 3}
+    assert not img_tagger.is_already_processed(path)
+
+
+@pytest.mark.parametrize("ext", ["webp", "png"])
+def test_auto_heal_keeps_animation(tmp_path, monkeypatch, capsys, ext):
+    path = make_animated(tmp_path / f"anim.{ext}", durations=[40, 250, 90], loop=3)
+
+    def corrupt(*args, **kwargs):
+        raise RuntimeError("Image data is corrupt")
+
+    monkeypatch.setattr(clear_tags.pyexiv2, "Image", corrupt)
+    clear_tags.clear_tags(path)
+
+    assert "Sanitized and cleared (Pillow)" in capsys.readouterr().out
+    assert animation_info(path) == {"n_frames": 3, "durations": [40, 250, 90], "loop": 3}
     assert leftover_temp_files(tmp_path) == []
 
 

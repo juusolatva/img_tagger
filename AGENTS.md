@@ -10,9 +10,9 @@ This file provides guidance to agents when working with code in this repository.
 - Requires **Python 3.10+** (uses modern type annotations like `str | None` and `list[str]`).
 
 ## Build/Lint/Test Commands
-No lint tooling is configured.
+No lint tooling is configured in the repo. The maintainer runs SonarQube Cloud (project `juusolatva_img_tagger`) manually; keep functions under its cognitive-complexity limit of 15 by extracting `_private` helpers.
 - Dependencies: `pip install -r requirements.txt` (or `pip3 install -r requirements.txt`); test deps: `pip install -r requirements-dev.txt`
-- Run tests: `python3 -m pytest` (offline: images generated on the fly, model backends faked; ~10s)
+- Run tests: `python3 -m pytest` (offline: images generated on the fly, model backends faked; ~15s)
 - Integration tests (opt-in, need a live backend + images in git-ignored `test_images/`; copies images to a temp dir, prints tags for manual quality review): `python3 -m pytest -m integration --run-integration -s [--tagger-backend lm-studio] [--tagger-host URL] [--tagger-model M] [--images-dir DIR]`
 - Run tagger (Ollama, default): `python3 img_tagger.py <directory>`
 - Run tagger (LM Studio): `python3 img_tagger.py <directory> --backend lm-studio`
@@ -56,11 +56,21 @@ No lint tooling is configured.
 ## GIF Processing
 - Frames are streamed via a generator during `Image.save()` (each frame copied and yielded one at a time) to avoid loading all frames into RAM, maintaining O(1) memory overhead even for large animated GIFs.
 - Per-frame durations are extracted from `img.info` and preserved (defaulting to 100ms if missing).
-- Animated WebPs are not properly supported (see README known issues).
+- GIF tagging re-encodes the whole file through Pillow, so anything Pillow doesn't round-trip is lost: e.g. custom application extensions (`21 FF` blocks other than looping) are dropped.
+
+## Animated WebP
+README lists animated WebP as not properly supported. Current state:
+- Normal tagging/clearing goes through pyexiv2, which edits metadata in place: frames, per-frame durations and loop count survive.
+- Auto-heal keeps the animation too: `_sanitize_with_pillow()` re-saves animated images (WebP, APNG) with `save_all=True` plus per-frame durations and loop.
+- Untested what the model sees (probably only the first frame); `get_tags_lm_studio()` sends the whole file as `image/webp`.
+
+## Non-standard PNG chunks
+- pyexiv2 edits PNGs in place, so other text chunks (`tEXt`/`zTXt`/`iTXt`), `pHYs` (DPI) and private ancillary chunks survive tagging and clearing. Tagging adds an `iTXt` `XML:com.adobe.xmp` chunk; clearing removes it.
+- The Pillow auto-heal re-save passes no `pnginfo`/`dpi`, so on that path other text chunks and DPI are lost.
 
 ## Metadata Auto-Healing & Sanitization
 If `pyexiv2` raises a `RuntimeError` containing `"IFD"` or `"corrupt"`:
-1. Re-save image with Pillow (`quality=95` for lossy formats) to strip broken headers.
+1. Re-save image with Pillow via `_sanitize_with_pillow()` (`quality=95` for lossy formats) to strip broken headers. Animated WebP/APNG keep all frames, durations and loop.
 2. Retry metadata write/clear with pyexiv2 on the sanitized file.
 *Caution*: Pillow re-saving can re-encode/compress lossy images (JPEG/WebP).
 
@@ -69,4 +79,5 @@ If `pyexiv2` raises a `RuntimeError` containing `"IFD"` or `"corrupt"`:
 - **Known bugs**: none currently pinned. When adding one, pin it as a strict `xfail` (fixing it makes it XPASS → remove the marker).
 - **Silent logging by default**: Without `--log`, `DEBUG` logs (including pyexiv2 read failures and fallback activations) do not display. Failures may look like silent no-ops.
 - **No request timeouts**: Ollama and LM Studio HTTP clients lack request timeouts; hung local model servers can block worker threads indefinitely.
-- **Duplicated utility logic**: `robust_replace()`, Pillow auto-healing fallback, and GIF streaming generator logic are duplicated between `img_tagger.py` and `clear_tags.py`. Keep both in sync when modifying file handling.
+- **SonarQube false positives** (dismissed in Sonar; don't "fix" them in code): path traversal on `--log` in `setup_logging()` (operator-chosen path, tool is for interactive use); "always false" `OpenAI is None` in `_create_client()` (optional-import fallback, covered by `test_missing_openai_library`); regex-backtracking warnings on `parse_model_output()` patterns (measured linear on 200k-char adversarial inputs).
+- **Duplicated utility logic**: `robust_replace()`, Pillow auto-healing fallback (`_sanitize_with_pillow()`), and GIF streaming generator logic are duplicated between `img_tagger.py` and `clear_tags.py`. Keep both in sync when modifying file handling.

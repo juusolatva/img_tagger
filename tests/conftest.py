@@ -86,6 +86,25 @@ def read_metadata(path: Path) -> tuple[dict, dict]:
         return img.read_exif(), img.read_xmp()
 
 
+def make_animated(path: Path, durations: list[int] | None = None, loop: int = 0) -> Path:
+    """Create an animated WebP or PNG (APNG) whose frames all differ; format is chosen from the extension."""
+    durations = durations or GIF_DURATIONS
+    fmt = {"webp": "WEBP", "png": "PNG"}[path.suffix.lower().lstrip(".")]
+    frames = [Image.new("RGB", (8, 8), GIF_COLORS[i % len(GIF_COLORS)]) for i in range(len(durations))]
+    frames[0].save(path, format=fmt, save_all=True, append_images=frames[1:], duration=durations, loop=loop)
+    return path
+
+
+def animation_info(path: Path) -> dict:
+    """Return frame count, per-frame durations and loop of an animated WebP/APNG."""
+    with Image.open(path) as img:
+        durations = []
+        for frame in ImageSequence.Iterator(img):
+            frame.load()  # WebP fills in the duration only after decoding the frame
+            durations.append(round(frame.info.get("duration", 0)))  # APNG reports floats
+        return {"n_frames": img.n_frames, "durations": durations, "loop": img.info.get("loop")}
+
+
 def gif_info(path: Path) -> dict:
     """Return frame count, per-frame durations, loop and comment of a GIF."""
     with Image.open(path) as img:

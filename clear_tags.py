@@ -41,6 +41,31 @@ def robust_replace(src: Path, dst: Path):
         raise OSError(f"Failed to replace {src} with {dst} after retries.")
 
 
+def _sanitize_with_pillow(src, dst, fmt=None) -> None:
+    """
+    Re-saves an image with Pillow to strip broken metadata headers, keeping every
+    frame, per-frame duration and loop count of animated images (WebP, APNG).
+
+    Args:
+        src: The path of the image to read.
+        dst: The path to write the sanitized copy to.
+        fmt: Pillow format name to save as; defaults to the source image's format.
+    """
+
+    with Image.open(src) as img:
+        fmt = fmt or img.format
+        if not getattr(img, "is_animated", False):
+            img.save(dst, format=fmt, quality=95)
+            return
+
+        durations = []
+        for frame in ImageSequence.Iterator(img):
+            frame.load()  # WebP only fills in the frame's duration once it's decoded
+            durations.append(frame.info.get("duration", 100))
+        img.seek(0)
+        img.save(dst, format=fmt, quality=95, save_all=True, duration=durations, loop=img.info.get("loop", 0))
+
+
 def _clear_standard(image_path, temp_path):
     """
     Wipes EXIF, XMP and IPTC from a JPEG/WebP/PNG via pyexiv2, falling back to
@@ -74,9 +99,8 @@ def _clear_standard(image_path, temp_path):
 
         # Sanitize with Pillow to strip broken headers.
         ext = image_path.suffix.lower().lstrip(".")
-        with Image.open(image_path) as pil_img:
-            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
-            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"), quality=95)
+        format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
+        _sanitize_with_pillow(image_path, temp_path, format_map.get(ext, "JPEG"))
 
         robust_replace(temp_path, image_path)
         print(f"  Sanitized and cleared (Pillow) for: {image_path.name}")

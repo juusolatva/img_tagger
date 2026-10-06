@@ -7,8 +7,10 @@ from conftest import (
     GIF_DURATIONS,
     MARKER,
     SAMPLE_TAGS,
+    animation_info,
     gif_info,
     leftover_temp_files,
+    make_animated,
     make_gif,
     make_image,
     read_metadata,
@@ -139,6 +141,34 @@ class TestWriteMetadata:
         expected_format = {".jpg": "JPEG", ".png": "PNG", ".webp": "WEBP"}[static_image.suffix]
         assert img_tagger.get_image_format(static_image) == expected_format
         assert leftover_temp_files(static_image.parent) == []
+
+    @pytest.mark.parametrize("ext", ["webp", "png"])
+    def test_tagging_keeps_animation(self, tmp_path, ext):
+        path = make_animated(tmp_path / f"anim.{ext}", durations=[40, 250, 90], loop=3)
+        img_tagger.write_metadata(str(path), SAMPLE_TAGS)
+        assert animation_info(path) == {"n_frames": 3, "durations": [40, 250, 90], "loop": 3}
+        assert img_tagger.is_already_processed(path)
+
+    @pytest.mark.parametrize("ext", ["webp", "png"])
+    def test_auto_heal_keeps_animation(self, tmp_path, monkeypatch, ext):
+        path = make_animated(tmp_path / f"anim.{ext}", durations=[40, 250, 90], loop=3)
+        real_image = img_tagger.pyexiv2.Image
+        attempts = []
+
+        def flaky_image(*args, **kwargs):
+            attempts.append(args[0])
+            if len(attempts) == 1:
+                raise RuntimeError("Image data is corrupt")
+            return real_image(*args, **kwargs)
+
+        monkeypatch.setattr(img_tagger.pyexiv2, "Image", flaky_image)
+        img_tagger.write_metadata(str(path), SAMPLE_TAGS)
+        monkeypatch.setattr(img_tagger.pyexiv2, "Image", real_image)
+
+        assert len(attempts) == 2
+        assert animation_info(path) == {"n_frames": 3, "durations": [40, 250, 90], "loop": 3}
+        assert img_tagger.is_already_processed(path)
+        assert leftover_temp_files(tmp_path) == []
 
 
 # --- write_gif_tags -------------------------------------------------------
