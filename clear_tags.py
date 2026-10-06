@@ -41,94 +41,112 @@ def robust_replace(src: Path, dst: Path):
         raise OSError(f"Failed to replace {src} with {dst} after retries.")
 
 
+def _clear_standard(image_path, temp_path):
+    """
+    Wipes EXIF, XMP and IPTC from a JPEG/WebP/PNG via pyexiv2, falling back to
+    a Pillow re-save when pyexiv2 reports corrupt metadata.
+
+    Args:
+        image_path (Path): The path to the image file.
+        temp_path (Path): Temp file in the image's directory to build the result in.
+
+    Raises:
+        RuntimeError: If pyexiv2 fails for a reason other than corrupt metadata.
+    """
+
+    shutil.copy2(image_path, temp_path)
+    try:
+        # Primary attempt using pyexiv2 to wipe EVERYTHING
+        with pyexiv2.Image(str(temp_path)) as img:
+            img.clear_exif()
+            img.clear_xmp()
+            img.clear_iptc()
+
+        robust_replace(temp_path, image_path)
+        print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
+
+    except RuntimeError as e:
+        if "IFD" not in str(e).upper() and "corrupt" not in str(e).lower():
+            raise
+
+        # Sanitize with Pillow to strip broken headers.
+        ext = image_path.suffix.lower().lstrip(".")
+        with Image.open(image_path) as pil_img:
+            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
+            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"), quality=95)
+
+        robust_replace(temp_path, image_path)
+        print(f"  Sanitized and cleared (Pillow) for: {image_path.name}")
+
+
+def _clear_gif(image_path, temp_path):
+    """
+    Re-saves a GIF with an empty comment, streaming frames to keep memory flat.
+
+    Args:
+        image_path (Path): The path to the GIF file.
+        temp_path (Path): Temp file in the image's directory to build the result in.
+    """
+
+    with Image.open(image_path) as img:
+        loop = img.info.get("loop", 0)
+        # Capture per-frame duration to preserve variable frame rates
+        durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
+
+        # Reset the image pointer back to the first frame
+        img.seek(0)
+        first_frame = img.copy()
+
+        # This generator streams frame copies one-by-one into the file writer.
+        # It handles files larger than 64MB flawlessly with O(1) memory overhead.
+        def frame_generator():
+            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                if i == 0:
+                    continue
+                yield frame.copy()
+
+        first_frame.save(
+            temp_path,
+            format="GIF",
+            save_all=True,
+            append_images=frame_generator(),
+            duration=durations,
+            loop=loop,
+            comment=""
+        )
+        first_frame.close()
+
+    robust_replace(temp_path, image_path)
+    print(f"  Cleared GIF comment (memory-efficient stream): {image_path.name}")
+
+
 def clear_tags(image_path):
     """
     Removes all metadata (EXIF, XMP, IPTC) from standard images and clears
     comments from GIFs to reset images for testing purposes.
 
+    Failures are printed rather than raised so one bad file doesn't stop a batch.
+
     Args:
         image_path (Path): The path to the image file.
-
-    Raises:
-        Exception: If an error occurs during metadata clearing or sanitization.
     """
 
     ext = image_path.suffix.lower().lstrip(".")
+    if ext in ["jpg", "jpeg", "webp", "png"]:
+        clear_fn = _clear_standard
+    elif ext == "gif":
+        clear_fn = _clear_gif
+    else:
+        return
+
     try:
-        if ext in ["jpg", "jpeg", "webp", "png"]:
-            fd, temp_path_str = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
-            os.close(fd)
-            temp_path = Path(temp_path_str)
-
-            try:
-                shutil.copy2(image_path, temp_path)
-                try:
-                    # Primary attempt using pyexiv2 to wipe EVERYTHING
-                    with pyexiv2.Image(str(temp_path)) as img:
-                        img.clear_exif()
-                        img.clear_xmp()
-                        img.clear_iptc()
-
-                    robust_replace(temp_path, image_path)
-                    print(f"  Cleared metadata (pyexiv2) for: {image_path.name}")
-
-                except RuntimeError as e:
-                    if "IFD" in str(e).upper() or "corrupt" in str(e).lower():
-                        # Sanitize with Pillow to strip broken headers.
-                        with Image.open(image_path) as pil_img:
-                            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
-                            pil_img.save(temp_path, format=format_map.get(ext, "JPEG"), quality=95)
-
-                        robust_replace(temp_path, image_path)
-                        print(f"  Sanitized and cleared (Pillow) for: {image_path.name}")
-                    else:
-                        raise e
-
-            except Exception as e:
-                temp_path.unlink(missing_ok=True)
-                raise e
-
-        elif ext == "gif":
-            fd, temp_path_str = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
-            os.close(fd)
-            temp_path = Path(temp_path_str)
-
-            try:
-                with Image.open(image_path) as img:
-                    loop = img.info.get("loop", 0)
-                    # Capture per-frame duration to preserve variable frame rates
-                    durations = [f.info.get("duration", 100) for f in ImageSequence.Iterator(img)]
-
-                    # Reset the image pointer back to the first frame
-                    img.seek(0)
-                    first_frame = img.copy()
-
-                    # This generator streams frame copies one-by-one into the file writer.
-                    # It handles files larger than 64MB flawlessly with O(1) memory overhead.
-                    def frame_generator():
-                        for i, frame in enumerate(ImageSequence.Iterator(img)):
-                            if i == 0:
-                                continue
-                            yield frame.copy()
-
-                    first_frame.save(
-                        temp_path,
-                        format="GIF",
-                        save_all=True,
-                        append_images=frame_generator(),
-                        duration=durations,
-                        loop=loop,
-                        comment=""
-                    )
-                    first_frame.close()
-
-                robust_replace(temp_path, image_path)
-                print(f"  Cleared GIF comment (memory-efficient stream): {image_path.name}")
-
-            except Exception as e:
-                temp_path.unlink(missing_ok=True)
-                raise e
-
+        fd, temp_path_str = tempfile.mkstemp(dir=image_path.parent, suffix=".tmp")
+        os.close(fd)
+        temp_path = Path(temp_path_str)
+        try:
+            clear_fn(image_path, temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
     except Exception as e:
         print(f"  Failed to clear {image_path.name}: {e}")
 
