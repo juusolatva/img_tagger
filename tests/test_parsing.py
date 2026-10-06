@@ -47,8 +47,8 @@ class TestParseTextTags:
     def test_strips_quotes_and_lowercases(self):
         assert parse_text_tags("\"Photo\", 'Sunset'") == ["photo", "sunset"]
 
-    def test_skips_stop_words_and_very_short_parts(self):
-        assert parse_text_tags("the, and, photo, ok, sunset, are") == ["photo", "sunset"]
+    def test_skips_stop_words_but_keeps_short_tags(self):
+        assert parse_text_tags("the, and, photo, ok, sunset, are, 3d") == ["photo", "ok", "sunset", "3d"]
 
 
 # --- parse_model_output: supported output styles --------------------------
@@ -69,6 +69,8 @@ class TestParseModelOutput:
             pytest.param("1. photo\n2. sunset\n3. beach\n4. ocean\n5. sky\n6. clouds", id="numbered"),
             pytest.param("Here are the tags: photo, sunset, beach, ocean, sky, clouds", id="intro-tags"),
             pytest.param("Keywords - photo, sunset, beach, ocean, sky, clouds", id="intro-keywords"),
+            pytest.param("Here are the relevant tags for this image: photo, sunset, beach, ocean, sky, clouds", id="intro-tags-for-this-image"),
+            pytest.param("Tags:\nphoto\nsunset\nbeach\nocean\nsky\nclouds", id="intro-then-newline-list"),
         ],
     )
     def test_extracts_six_tags(self, raw):
@@ -121,32 +123,33 @@ class TestParseModelOutput:
         assert parse_model_output(raw) == ["1" * 5000] + SIX
 
 
-# --- Known parser weaknesses ----------------------------------------------
-# These document real model-output styles that are currently mis-parsed.
-# They are strict xfails: when the parser is fixed they will XPASS and fail
-# the run, as a reminder to drop the xfail marker.
+# --- Previously mis-parsed output styles -----------------------------------
 
-class TestParseModelOutputKnownIssues:
-    @pytest.mark.xfail(strict=True, reason="plain newline-separated lists are not recognised")
+class TestParseModelOutputRegressions:
     def test_newline_separated_list(self):
         assert parse_model_output("photo\nsunset\nbeach\nocean\nsky\nclouds") == SIX
 
-    @pytest.mark.xfail(strict=True, reason="hyphens inside tags are treated as bullet markers")
     def test_numbered_list_with_hyphenated_tags(self):
         raw = "\n".join(f"{i}. tag-{i}" for i in range(1, 7))
         assert parse_model_output(raw) == [f"tag-{i}" for i in range(1, 7)]
 
-    @pytest.mark.xfail(strict=True, reason="the word 'tags' early in a plain list triggers the intro-text path")
+    def test_dash_bullets_with_hyphenated_tags(self):
+        raw = "\n".join(f"- tag-{i}" for i in range(1, 7))
+        assert parse_model_output(raw) == [f"tag-{i}" for i in range(1, 7)]
+
     def test_comma_list_containing_word_tags(self):
         raw = "meme, text tags, funny, cat, reaction, wholesome"
         assert parse_model_output(raw) == ["meme", "text tags", "funny", "cat", "reaction", "wholesome"]
 
-    @pytest.mark.xfail(strict=True, reason="parse_text_tags drops tags of 2 chars or fewer (e.g. '3d', 'ui')")
     def test_short_tags_after_intro(self):
         raw = "Tags: photo, 3d, ui, beach, ocean, sky"
         assert parse_model_output(raw) == ["photo", "3d", "ui", "beach", "ocean", "sky"]
 
-    @pytest.mark.xfail(strict=True, reason="<think> reasoning blocks from thinking models are not stripped")
     def test_reasoning_block_is_ignored(self):
         raw = "<think>The image shows a cat.</think>\nmeme, cat, funny, reaction, wholesome, pet"
+        assert parse_model_output(raw) == ["meme", "cat", "funny", "reaction", "wholesome", "pet"]
+
+    def test_reasoning_with_only_closing_tag_is_ignored(self):
+        # Some chat templates pre-fill "<think>", so only the closing tag reaches the output.
+        raw = "Tags: maybe, dog, or, cat?\n</think>\nmeme, cat, funny, reaction, wholesome, pet"
         assert parse_model_output(raw) == ["meme", "cat", "funny", "reaction", "wholesome", "pet"]

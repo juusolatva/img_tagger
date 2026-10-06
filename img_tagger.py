@@ -434,6 +434,10 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
         A list of normalized tags, or None if no valid tags could be extracted.
     """
 
+    # Thinking models (e.g. qwen3, deepseek-r1) may emit <think>...</think> reasoning before the answer
+    if "</think>" in raw_output:
+        raw_output = raw_output.rsplit("</think>", 1)[1]
+
     # Pattern 1: JSON array ["tag1", "tag2"] - most reliable
     parsed = None
 
@@ -459,8 +463,8 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
         normalized = normalize_tags(json_tags)
         if normalized:
             return normalized
-    # Pattern 2: Bullet points or numbered lists (minimum 6 items expected)
-    bullets = re.findall(r'[-•★●]\s*(.+)', raw_output)
+    # Pattern 2: Bullet points at line start (minimum 6 items expected); hyphens inside tags are not bullets
+    bullets = re.findall(r'^[ \t]*[-•★●][ \t]*(\S.*)', raw_output, re.MULTILINE)
     if len(bullets) >= 6:
         return normalize_tags([t.strip().strip('"').lower() for b in bullets for t in b.split(",")])
 
@@ -469,13 +473,16 @@ def parse_model_output(raw_output: str) -> Optional[List[str]]:
     if len(numbered) >= 6:
         return normalize_tags([t.strip().strip('"').lower() for n in numbered for t in n.split(",")])
 
-    # Pattern 4: "Here are the tags:" style intro text extraction
-    text_after_intro = re.match(r'.{0,40}?\b(?:tags|keywords)\b\s*[:\-]?\s*(.+)', raw_output, re.IGNORECASE | re.DOTALL)
+    # Pattern 4: "Here are the tags:" style intro text extraction. Needs a colon later on the same line
+    # ("tags for this image:") or a dash right after, so a list item like "text tags" doesn't count.
+    text_after_intro = re.match(
+        r'.{0,40}?\b(?:tags|keywords)\b(?:[^:\n]{0,40}:|\s*-)\s*(.+)', raw_output, re.IGNORECASE | re.DOTALL
+    )
     if text_after_intro:
         return normalize_tags(parse_text_tags(text_after_intro.group(1)))
 
-    # Fallback: comma-separated (current behavior)
-    return normalize_tags([tag.strip().strip('"\'').lower() for tag in raw_output.split(",") if tag.strip()])
+    # Fallback: comma- and/or newline-separated
+    return normalize_tags([tag.strip().strip('"\'').lower() for tag in re.split(r'[,\n]', raw_output) if tag.strip()])
 
 
 def parse_text_tags(text: str) -> List[str]:
@@ -493,8 +500,8 @@ def parse_text_tags(text: str) -> List[str]:
     tags = []
     for part in parts:
         part = part.strip().strip('"\'').lower()
-        # Skip common non-tag words
-        if part and len(part) > 2 and part not in ['and', 'or', 'the', 'a', 'an', 'is', 'are', 'of']:
+        # Skip common non-tag words (short real tags like '3d' or 'ui' are kept)
+        if part and part not in ['and', 'or', 'the', 'a', 'an', 'is', 'are', 'of']:
             tags.append(part)
     return tags
 

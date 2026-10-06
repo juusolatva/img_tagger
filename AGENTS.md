@@ -32,12 +32,12 @@ No lint tooling is configured.
 - **Skip marker**: Files with `[PROCESSED BY AI]` in EXIF/XMP/GIF comment are skipped automatically (`is_already_processed()`).
 - **Prompt source**: `prompt.txt` in the script directory takes precedence over the in-code `DEFAULT_PROMPT` fallback. If `prompt.txt` exists but cannot be read, execution aborts (`sys.exit(1)`).
 - **Tag count & normalization**: Output is normalized via `normalize_tags()` (strip whitespace, lowercase, order-preserving deduplication, capped at 12 tags). Fewer than 6 valid tags after parsing marks that image as `FAILED`.
-- **Tag parsing**: `parse_model_output()` tries several patterns in order:
+- **Tag parsing**: `parse_model_output()` first drops everything up to the last `</think>` (reasoning from thinking models), then tries several patterns in order:
   1. JSON array (`json.loads` on full string or bracketed `[...]` substring).
-  2. Bullet points (`[-•★●]`, minimum 6 items expected; splits each line on commas).
+  2. Bullet points at line start (`[-•★●]`, minimum 6 items expected; splits each line on commas). Hyphens inside tags (`tag-1`) are not bullets.
   3. Numbered lists (`\d+\.`, minimum 6 items expected; splits each line on commas).
-  4. Intro text matching `.{0,40}?\b(?:tags|keywords)\b\s*[:\-]?\s*(.+)` (parsed via `parse_text_tags()`, which strips common English stop words).
-  5. Comma-separated list fallback.
+  4. Intro text: `tags`/`keywords` within the first ~40 chars, followed by a colon later on the same line (`Here are the tags for this image:`) or a dash right after (`Keywords -`). Parsed via `parse_text_tags()`, which drops common English stop words but keeps short tags like `3d`/`ui`.
+  5. Comma- and/or newline-separated list fallback.
 - **Concurrency & Locks**: Images are processed in parallel via `ThreadPoolExecutor`. `pyexiv2` is not thread-safe: all `pyexiv2` reads (`is_already_processed()`) and writes (`write_metadata()`) are serialized through `metadata_lock = threading.Lock()`. Model API calls and Pillow operations (GIF read/write, format verification) are intentionally outside the lock to preserve concurrency.
 - **Graceful quit**: Press `Q` during execution to trigger graceful shutdown. Monitored by a daemon thread (`listen_for_quit()`) using `msvcrt` on Windows or `termios`/`tty`/`select` on POSIX (with EOF detection for detached terminals). In-flight requests finish, but queued/unstarted tasks are marked `CANCELLED`.
 
@@ -66,7 +66,7 @@ If `pyexiv2` raises a `RuntimeError` containing `"IFD"` or `"corrupt"`:
 
 ## Known Limitations & Maintenance Notes
 - **Tests**: `python3 -m pytest` covers parsing, metadata round-trips for every format, GIF frame/duration preservation, auto-healing (simulated), temp-file cleanup, fake-backend pipeline, quit listener and CLI. No CI. Tagging *quality* still needs a manual run with `--run-integration` against real images.
-- **Known bugs pinned as strict `xfail`** (fixing one makes it XPASS → remove the marker): parser misses newline-only lists, hyphenated tags in numbered lists, the word "tags" early in a plain list, ≤2-char tags after a `Tags:` intro, `<think>` blocks; `clear_tags.py` cannot clear XMP on WebP (pyexiv2 `clear_xmp()` no-op); `listen_for_quit()` misses a `q` arriving in the same read burst as another key.
+- **Known bugs pinned as strict `xfail`** (fixing one makes it XPASS → remove the marker): `clear_tags.py` cannot clear XMP on WebP (pyexiv2 `clear_xmp()` no-op); `listen_for_quit()` misses a `q` arriving in the same read burst as another key.
 - **Silent logging by default**: Without `--log`, `DEBUG` logs (including pyexiv2 read failures and fallback activations) do not display. Failures may look like silent no-ops.
 - **No request timeouts**: Ollama and LM Studio HTTP clients lack request timeouts; hung local model servers can block worker threads indefinitely.
 - **Duplicated utility logic**: `robust_replace()`, Pillow auto-healing fallback, and GIF streaming generator logic are duplicated between `img_tagger.py` and `clear_tags.py`. Keep both in sync when modifying file handling.
