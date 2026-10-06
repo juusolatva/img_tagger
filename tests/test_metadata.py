@@ -262,6 +262,33 @@ class TestIsAlreadyProcessed:
         Image.new("RGB", (4, 4)).save(path, pnginfo=info)
         assert img_tagger.is_already_processed(path)
 
+    def test_pillow_fallback_used_when_pyexiv2_cannot_open(self, tmp_path, monkeypatch):
+        from PIL import PngImagePlugin
+
+        path = tmp_path / "text.png"
+        info = PngImagePlugin.PngInfo()
+        info.add_text("Comment", f"tags {MARKER}")
+        Image.new("RGB", (4, 4)).save(path, pnginfo=info)
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("pyexiv2 exploded")
+
+        monkeypatch.setattr(img_tagger.pyexiv2, "Image", broken)
+        assert img_tagger.is_already_processed(path)
+
+    def test_xmp_still_checked_when_exif_read_fails(self, tmp_path, monkeypatch):
+        import pyexiv2
+
+        path = make_image(tmp_path / "x.jpg")
+        with pyexiv2.Image(str(path)) as img:
+            img.modify_xmp({"Xmp.dc.description": f"tagged elsewhere {MARKER}"})
+
+        def broken_read_exif(self, *args, **kwargs):
+            raise RuntimeError("corrupt EXIF")
+
+        monkeypatch.setattr(pyexiv2.Image, "read_exif", broken_read_exif)
+        assert img_tagger.is_already_processed(path)
+
     def test_unreadable_file_is_not_processed(self, tmp_path):
         bogus = tmp_path / "bogus.jpg"
         bogus.write_bytes(b"garbage")

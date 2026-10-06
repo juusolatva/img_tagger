@@ -531,6 +531,47 @@ def normalize_tags(tags: List[str], min_count: int = 6, max_count: int = 12) -> 
     return normalized if len(normalized) >= min_count else None
 
 
+def _contains_marker(value: object) -> bool:
+    """Returns True if a metadata value (str, bytes or other) contains the processed marker."""
+
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="ignore")
+    return bool(value) and PROCESSED_MARKER in str(value)
+
+
+def _pyexiv2_has_marker(p: Path) -> bool:
+    """
+    Checks every EXIF and XMP value for the processed marker.
+
+    Raises:
+        Exception: If pyexiv2 cannot open the file.
+    """
+
+    values = []
+    with metadata_lock:
+        # Explicitly pass encoding='utf-8' to handle non-ASCII path characters like 'ö'
+        with pyexiv2.Image(str(p), encoding='utf-8') as img:
+            # Read EXIF and XMP independently so one failing doesn't kill both
+            for read in (img.read_exif, img.read_xmp):
+                try:
+                    values.extend(read().values())
+                except Exception:
+                    pass
+    return any(_contains_marker(v) for v in values)
+
+
+def _pillow_has_marker(p: Path) -> bool:
+    """
+    Checks Pillow's text metadata (e.g. PNG text chunks) for the processed marker.
+
+    Raises:
+        Exception: If Pillow cannot open the file.
+    """
+
+    with Image.open(p) as img:
+        return any(isinstance(v, str) and PROCESSED_MARKER in v for v in img.info.values())
+
+
 def is_already_processed(img_path: Path) -> bool:
     """Checks if the image already contains the AI processed marker.
 
@@ -541,65 +582,27 @@ def is_already_processed(img_path: Path) -> bool:
         True if the marker is found in metadata or comments, False otherwise.
     """
 
-    marker = PROCESSED_MARKER
     p = Path(img_path)
     ext = p.suffix.lower().lstrip(".")
 
     if ext in ["jpg", "jpeg", "webp", "png"]:
         # 1. Primary metadata inspection using pyexiv2
         try:
-            with metadata_lock:
-                # Explicitly pass encoding='utf-8' to handle non-ASCII path characters like 'ö'
-                with pyexiv2.Image(str(p), encoding='utf-8') as img:
-                    exif_dict, xmp_dict = {}, {}
-
-                    # Read EXIF and XMP independently so one failing doesn't kill both
-                    try:
-                        exif_dict = img.read_exif()
-                    except Exception:
-                        pass
-                    try:
-                        xmp_dict = img.read_xmp()
-                    except Exception:
-                        pass
-
-                    keys_to_check = [
-                        "Exif.Photo.UserComment",
-                        "Exif.UserComment",
-                        "Xmp.dc.description",
-                        "Xmp.dc.subject"
-                    ]
-
-                    # Check targeted keys
-                    for key in keys_to_check:
-                        data = exif_dict.get(key) if "Exif" in key else xmp_dict.get(key)
-                        if data:
-                            val = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
-                            if marker in val:
-                                return True
-
-                    # Fallback lookup through all read metadata elements
-                    for val in list(exif_dict.values()) + list(xmp_dict.values()):
-                        if val and marker in (val.decode("utf-8", errors="ignore") if isinstance(val, bytes) else str(val)):
-                            return True
+            if _pyexiv2_has_marker(p):
+                return True
         except Exception as e:
             logging.debug(f"pyexiv2 metadata read failed for {p.name} ({e}); trying Pillow fallback.")
 
         # 2. Fully isolated fallback check using Pillow
         try:
-            with Image.open(p) as img:
-                for key, value in img.info.items():
-                    if isinstance(value, str) and marker in value:
-                        return True
+            return _pillow_has_marker(p)
         except Exception as e:
             logging.debug(f"Pillow fallback failed for {p.name}: {e}")
 
     elif ext == "gif":
         try:
             with Image.open(p) as img:
-                comment = img.info.get("comment", "")
-                if comment and marker in str(comment):
-                    return True
+                return _contains_marker(img.info.get("comment"))
         except Exception as e:
             logging.debug(f"Pillow failed to read GIF comments for {p.name}: {e}")
 
