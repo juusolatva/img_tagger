@@ -65,7 +65,7 @@ Clear all tags and metadata from a folder recursively:
 - The script doesn't respect preexisting tags so keep in mind that they will be overwritten
 - The default model is **Qwen3 VL 8B** but any model capable of processing image inputs should work
 - Allows a maximum of 4 workers which is the default limit for both **ollama** and **LM Studio**
-- In case you need to you can clear all the tags in a folder using the *--clear* flag or the standalone *clear_tags.py* script
+- In case you need to you can clear all the tags in a folder using the *--clear* flag
 
 ### Running tests
 *pip install -r requirements-dev.txt* and then *python -m pytest*. The default tests run offline (no model server needed).
