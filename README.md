@@ -40,6 +40,7 @@ Just give it the folder with your images:
 - *--model* - the model to use (*qwen3-vl:8b* by default)
 - *--workers* - how many images to process at the same time, from 1 to 4 (1 by default)
 - *--log* - save a log file for troubleshooting, e.g. *--log logs/run.log*
+- *--clear* - remove all metadata (EXIF/XMP/IPTC) and comments from images instead of tagging
 
 ### Examples
 Tag a folder and all of its subfolders with ollama:
@@ -49,6 +50,10 @@ Tag a folder and all of its subfolders with ollama:
 Use LM Studio with 4 workers and save a log:
 
 *python img_tagger.py ~/Pictures/memes --backend lm-studio --workers 4 --log run.log*
+
+Clear all tags and metadata from a folder recursively:
+
+*python img_tagger.py ~/Pictures/memes -r --clear*
 
 
 ---
@@ -60,7 +65,7 @@ Use LM Studio with 4 workers and save a log:
 - The script doesn't respect preexisting tags so keep in mind that they will be overwritten
 - The default model is **Qwen3 VL 8B** but any model capable of processing image inputs should work
 - Allows a maximum of 4 workers which is the default limit for both **ollama** and **LM Studio**
-- In case you need to you can clear all the tags in a folder using the *clear_tags.py* script
+- In case you need to you can clear all the tags in a folder using the *--clear* flag or the standalone *clear_tags.py* script
 
 ### Running tests
 *pip install -r requirements-dev.txt* and then *python -m pytest*. The default tests run offline (no model server needed).

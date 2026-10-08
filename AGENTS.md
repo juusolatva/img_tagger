@@ -17,7 +17,7 @@ No lint tooling is configured in the repo. The maintainer runs SonarQube Cloud (
 - Run tagger (Ollama, default): `python3 img_tagger.py <directory>`
 - Run tagger (LM Studio): `python3 img_tagger.py <directory> --backend lm-studio`
 - Recursive, custom model/workers: `python3 img_tagger.py <directory> -r --model <model> --workers 4`
-- Clear all tags: `python3 clear_tags.py <directory> [-r]`
+- Clear all tags: `python3 img_tagger.py <directory> --clear [-r]` (or standalone `python3 clear_tags.py <directory> [-r]`)
 - Help: `python3 img_tagger.py -h`
 - Logging: `python3 img_tagger.py <dir> --log output.log` (without `--log`, diagnostic `DEBUG` messages never surface — see Known Limitations)
 - Note: On Linux environments, use `python3` if `python` is not aliased.

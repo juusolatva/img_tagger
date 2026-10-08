@@ -412,3 +412,39 @@ class TestListenForQuitCbreak:
         thread.join(timeout=3)
         assert not thread.is_alive()
         assert attrs() == original
+
+
+class TestClearDirectory:
+    def test_clear_directory_removes_tags(self, tmp_path, capsys):
+        top_jpg = make_image(tmp_path / "a.jpg")
+        top_gif = make_gif(tmp_path / "b.gif")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        nested = make_image(sub / "c.png")
+        for p in (top_jpg, top_gif, nested):
+            img_tagger.tag_image(str(p), SAMPLE_TAGS)
+            assert img_tagger.is_already_processed(p)
+
+        img_tagger.clear_directory(str(tmp_path), recursive=True, max_workers=2)
+
+        out = capsys.readouterr().out
+        assert "Resetting tags for 3 images" in out
+        assert "Done." in out
+        assert not img_tagger.is_already_processed(top_jpg)
+        assert not img_tagger.is_already_processed(top_gif)
+        assert not img_tagger.is_already_processed(nested)
+
+    def test_process_directory_clear_does_not_call_backend(self, tmp_path, fake_ollama, capsys):
+        img = make_image(tmp_path / "a.jpg")
+        img_tagger.tag_image(str(img), SAMPLE_TAGS)
+        assert img_tagger.is_already_processed(img)
+
+        img_tagger.process_directory(str(tmp_path), recursive=False, clear=True)
+
+        assert not img_tagger.is_already_processed(img)
+        assert fake_ollama.instances == []
+
+    def test_clear_directory_nonexistent(self, tmp_path, capsys):
+        img_tagger.clear_directory(str(tmp_path / "does_not_exist"))
+        assert "not a valid directory" in capsys.readouterr().out
+
