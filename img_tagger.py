@@ -392,14 +392,13 @@ def _clear_standard(image_path: Path, temp_path: Path) -> None:
     shutil.copy2(image_path, temp_path)
     try:
         # Primary attempt using pyexiv2 to wipe EVERYTHING
-        with metadata_lock:
-            with pyexiv2.Image(str(temp_path), encoding="utf-8") as img:
-                img.clear_exif()
-                img.clear_xmp()
-                # On WebP, clear_xmp() alone leaves the XMP chunk in the saved file;
-                # also emptying the raw packet removes it (harmless for JPEG/PNG).
-                img.modify_raw_xmp("")
-                img.clear_iptc()
+        with metadata_lock, pyexiv2.Image(str(temp_path), encoding="utf-8") as img:
+            img.clear_exif()
+            img.clear_xmp()
+            # On WebP, clear_xmp() alone leaves the XMP chunk in the saved file;
+            # also emptying the raw packet removes it (harmless for JPEG/PNG).
+            img.modify_raw_xmp("")
+            img.clear_iptc()
 
         robust_replace(temp_path, image_path)
         logging.info(f"Cleared metadata (pyexiv2) for: {image_path.name}")
@@ -490,7 +489,7 @@ def clear_tags(image_path: Path | str) -> None:
         finally:
             temp_path.unlink(missing_ok=True)
     except Exception as e:
-        logging.error(f"Failed to clear {p.name}: {e}")
+        logging.exception(f"Failed to clear {p.name}: {e}")
         print(f"  Failed to clear {p.name}: {e}")
 
 
