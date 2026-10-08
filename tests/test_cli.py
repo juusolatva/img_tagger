@@ -86,29 +86,3 @@ class TestImgTaggerCli:
         assert "Resetting tags for 4 images" in result.stdout
         for p in paths:
             assert not img_tagger.is_already_processed(p)
-
-
-class TestClearTagsCli:
-    def test_missing_directory(self, tmp_path):
-        result = run("clear_tags.py", str(tmp_path / "nope"))
-        assert result.returncode == 1
-        assert "not a valid directory" in result.stdout
-
-    @pytest.mark.parametrize("recursive", [False, True])
-    def test_clears_directory(self, tmp_path, recursive):
-        top_jpg = make_image(tmp_path / "a.jpg")
-        top_gif = make_gif(tmp_path / "b.gif")
-        sub = tmp_path / "sub"
-        sub.mkdir()
-        nested = make_image(sub / "c.png")
-        for path in (top_jpg, top_gif, nested):
-            img_tagger.tag_image(str(path), SAMPLE_TAGS)
-
-        args = [str(tmp_path)] + (["-r"] if recursive else [])
-        result = run("clear_tags.py", *args)
-
-        assert result.returncode == 0
-        assert f"Resetting tags for {3 if recursive else 2} images" in result.stdout
-        assert not img_tagger.is_already_processed(top_jpg)
-        assert not img_tagger.is_already_processed(top_gif)
-        assert img_tagger.is_already_processed(nested) is not recursive

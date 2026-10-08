@@ -79,9 +79,7 @@ def test_tag_real_image(source_image: Path, tmp_path: Path, client, backend_sett
 
     # Start from a clean slate even if the source image was tagged earlier.
     if img_tagger.is_already_processed(image):
-        import clear_tags
-
-        clear_tags.clear_tags(image)
+        img_tagger.clear_tags(image)
         if img_tagger.is_already_processed(image):
             pytest.skip("source image is already tagged and its tags could not be cleared")
 
